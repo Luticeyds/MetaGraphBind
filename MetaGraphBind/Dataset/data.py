@@ -330,7 +330,7 @@ class FinetuneDataset(Dataset):
             augmented_data.append((graph_features, supplement_features, label))
             if self.num_copies > 0:
                 for _ in range(self.num_copies):
-                    # 应用增广
+                    # Apply augmentation
                     augmented_graph_features, augmented_supplement_features, augmented_label = self.augment_data(
                         graph_features, supplement_features, label
                     )
