@@ -586,7 +586,7 @@ class MT_Trainer(object):
             model = self.student_model
         elif which_model == 'val':
             model = self.student_model
-            state_dict = torch.load(self.save_name + '.pt')
+            state_dict = torch.load(self.save_name + '_teacher.pt')
             model.load_state_dict(state_dict)
         model.eval()  # Set the model to evaluation mode
         total_loss = 0.0
