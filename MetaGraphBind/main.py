@@ -197,7 +197,8 @@ def transfer1_only_main(args):
         excel_file=args.transfer1_excel,
         load_ckpt=args.pretrain_ckpt,
         save_ckpt=args.transfer1_ckpt,
-        args=args
+        args=args,
+        first=True
     )
 
 
@@ -208,7 +209,8 @@ def transfer2_only_main(args):
         excel_file=args.transfer2_excel,
         load_ckpt=args.transfer1_ckpt,
         save_ckpt=args.transfer2_ckpt,
-        args=args
+        args=args,
+        first=False
     )
 
 
@@ -266,6 +268,7 @@ def val_main(args):
 if __name__ == '__main__':
     parser = build_parser()
     args = parser.parse_args()
+
 
     if args.mode == 'pipeline':
         pipeline_main(args)
