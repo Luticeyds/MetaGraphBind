@@ -34,7 +34,7 @@ def build_parser():
     parser.add_argument('--num_copies', type=int, default=20, help="Number of augmented copies for each training sample in finetuning")
 
     # ========= training =========
-    parser.add_argument('--epochs', type=int, default=2000, help='Epochs for pretraining')
+    parser.add_argument('--epochs', type=int, default=10, help='Epochs for pretraining')
     parser.add_argument('--lr', type=float, default=0.001, help='Learning rate')
     parser.add_argument('--momentum', type=float, default=0.9, help='Momentum')
     parser.add_argument('--weight_decay', type=float, default=1.51e-4, help='Weight decay')
@@ -52,7 +52,7 @@ def build_parser():
     parser.add_argument('--transfer2_excel', type=str, default='data/finetune_article_dataset.xlsx', help='Article fine-tuning dataset')
     parser.add_argument('--generated_excel', type=str, default='data/generated_ligand.xlsx', help='Generated dataset in xlsx')
 
-    #
+    # ========= scaler files =========
     parser.add_argument('--pretrain_scaler_path', type=str, default='pre_scaler.joblib', help='Scaler path for pretraining')
     parser.add_argument('--transfer1_scaler_path', type=str, default='transfer1_scaler.joblib', help='Scaler path for first transfer')
     parser.add_argument('--transfer2_scaler_path', type=str, default='transfer2_scaler.joblib', help='Scaler path for second transfer')
@@ -86,8 +86,8 @@ def ensure_dirs():
 
 def copy_ckpt_as(src_name: str, dst_name: str):
 
-    src_path = os.path.join('net', f'{src_name}.pt')
-    dst_path = os.path.join('net', f'{dst_name}.pt')
+    src_path = os.path.join('net', f'net/{src_name}.pt')
+    dst_path = os.path.join('net', f'net/{dst_name}.pt')
 
     if not os.path.exists(src_path):
         raise FileNotFoundError(f'Checkpoint not found: {src_path}')

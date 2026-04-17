@@ -213,7 +213,7 @@ class Trainer(object):
             self.best_dict['patience'] = 0
             self.best_dict['epoch'] = self.epoch
             self.best_dict['model_wts'] = copy.deepcopy(self.model.state_dict())
-            torch.save(self.best_dict['model_wts'], self.model_name + '.pt')
+            torch.save(self.best_dict['model_wts'], 'net/'+self.model_name + '.pt')
             print(f'Epoch {self.epoch}, lr: {self.lr:.6f} ,Train Loss: {train_loss:.4f}, Test Loss: {test_loss:.4f};Train R2: {train_r2:.4f}, Test R2: {test_r2:.4f}')
         else:
             self.best_dict['patience'] += 1
@@ -273,7 +273,7 @@ class Trainer(object):
                 best_test_y = test_label
                 best_test_out = test_out
                 model_wts = copy.deepcopy(self.model.state_dict())
-                torch.save(model_wts, 'trans_' + self.model_name + '.pt')
+                torch.save(model_wts, 'net/trans_' + self.model_name + '.pt')
 
             else:
                 patience += 1
@@ -329,7 +329,7 @@ class Trainer(object):
 
             return atom_weights
 
-        model_state_dict = torch.load(self.model_name + '.pt')
+        model_state_dict = torch.load('net/'+self.model_name + '.pt')
         self.model.load_state_dict(model_state_dict)
         self.model = self.model.to(self.device)
 
@@ -527,7 +527,7 @@ class MT_Trainer(object):
         labels_values = labels_list.reshape(-1)
         data = {'Pre': pre_values, 'Labels': labels_values}
         df = pd.DataFrame(data)
-        df.to_excel(self.save_name + 'val_out.xlsx')
+        df.to_excel('net/'+self.save_name + 'val_out.xlsx')
 
     def train(self):
         self.student_model.train()
@@ -586,7 +586,7 @@ class MT_Trainer(object):
             model = self.student_model
         elif which_model == 'val':
             model = self.student_model
-            state_dict = torch.load(self.save_name + '.pt')
+            state_dict = torch.load('net/'+self.save_name + '.pt')
             model.load_state_dict(state_dict)
         model.eval()  # Set the model to evaluation mode
         total_loss = 0.0
@@ -627,11 +627,11 @@ class MT_Trainer(object):
                           mode='test', save=False)
 
             if which_model == 'teacher':
-                torch.save(copy.deepcopy(self.teacher_model.state_dict()), self.save_name + '_teacher.pt')
+                torch.save(copy.deepcopy(self.teacher_model.state_dict()), 'net/'+self.save_name + '_teacher.pt')
                 self.best_T = R2
                 print(f"better teacher:{self.best_T}")
             else:
-                torch.save(copy.deepcopy(self.student_model.state_dict()), self.save_name + '_student.pt')
+                torch.save(copy.deepcopy(self.student_model.state_dict()), 'net/'+self.save_name + '_student.pt')
                 self.best_S = R2
                 print(f"better student:{self.best_S}")
 
