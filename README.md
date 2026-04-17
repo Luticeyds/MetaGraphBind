@@ -27,7 +27,6 @@ MetaGraphBind/
 │   ├── trainer/
 │   ├── net/
 │   ├── main.py
-│   ├── test.py
 │   └── scaler.joblib
 └── L-MolGAN/
     ├── data/
