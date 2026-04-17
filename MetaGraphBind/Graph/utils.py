@@ -199,96 +199,68 @@ def save_mols_as_png(mols_list, prefix, num, molsPerRow=1):
     plt.close()
 
 def save_fp_contribution(data, filename):
-    # 计算每个功能组的平均贡献值
+    # Calculate the average contribution value for each functional group
     grouped_means = data.groupby('fg_name')['contribution'].mean()
 
-    # 为数据添加一列，以区分贡献值的正负
+    # Add a column to distinguish the sign of contribution values
     data['sign'] = data['contribution'].apply(lambda x: 'positive' if x >= 0 else 'negative')
 
-    # 创建图形
+    # Create the figure
     plt.figure(figsize=(14, 18))
     sns.set(style='white', font_scale=2)
-    # 绘制分割小提琴图
-    sns.violinplot(x='contribution', y='fg_name', data=data, inner=None, hue='sign', split=True, cut=0,
-                   palette={'negative': 'blue', 'positive': 'orange'})
 
-    # 绘制平均值线和标签
+    # Draw a split violin plot
+    sns.violinplot(
+        x='contribution',
+        y='fg_name',
+        data=data,
+        inner=None,
+        hue='sign',
+        split=True,
+        cut=0,
+        palette={'negative': 'blue', 'positive': 'orange'}
+    )
+
+    # Draw mean lines and labels
     ax = plt.gca()
     for i, (group, mean) in enumerate(grouped_means.items()):
-        ax.axvline(x=mean, ymin=i / len(grouped_means), ymax=(i + 1) / len(grouped_means), color='green',
-                   linestyle='--')
+        ax.axvline(
+            x=mean,
+            ymin=i / len(grouped_means),
+            ymax=(i + 1) / len(grouped_means),
+            color='green',
+            linestyle='--'
+        )
 
-    # 将平均值标签移到功能组标签的左侧，接近y轴
+    # Move the mean labels to the left side of the functional group labels, close to the y-axis
     for i, (group, mean) in enumerate(grouped_means.items()):
-        ax.text(ax.get_xlim()[0] + 8, i, f'{mean:.2f}', fontsize=20, color='black', va='center', ha='right')
+        ax.text(
+            ax.get_xlim()[0] + 8,
+            i,
+            f'{mean:.2f}',
+            fontsize=20,
+            color='black',
+            va='center',
+            ha='right'
+        )
 
-    # 在上方添加平均值的标识
-    ax.text(ax.get_xlim()[0] + 10, -1, 'Average  \nAttribution', fontsize=20, color='black', va='center', ha='right')
+    # Add the average attribution label at the top
+    ax.text(
+        ax.get_xlim()[0] + 10,
+        -1,
+        'Average  \nAttribution',
+        fontsize=20,
+        color='black',
+        va='center',
+        ha='right'
+    )
 
-    # 添加标签和标题
+    # Add labels and title
     plt.xlabel('Contribution', fontsize=20)
     plt.ylabel('Functional Group', fontsize=20)
     plt.savefig(filename, dpi=1500)
     plt.close()
 
-# def visualize_molecule_with_attention(molecule_smiles, attention_scores, output_file="molecule_attention.png", colormap="Greens"):
-#     """
-#     Visualize a molecule with attention scores.
-#
-#     Parameters:
-#     - molecule_smiles (str): SMILES string of the molecule to be visualized.
-#     - attention_scores (list or np.array): Attention scores for each atom in the molecule.
-#     - output_file (str): File path to save the output image.
-#     - colormap (str): Name of the colormap to use for coloring the atoms based on attention scores.
-#     """
-#     # Create molecule from SMILES string
-#     mol = Chem.MolFromSmiles(molecule_smiles)
-#
-#     # Generate 2D coordinates for the molecule (used for visualization)
-#     rdDepictor.Compute2DCoords(mol)
-#
-#     # Normalize attention scores to range [0, 1] for consistent color scaling
-#     attention_scores = np.array(attention_scores)
-#     normalized_scores = (attention_scores - np.min(attention_scores)) / (
-#                 np.max(attention_scores) - np.min(attention_scores))
-#
-#     # Set up colors for each atom based on attention scores using the specified colormap
-#     cmap = plt.get_cmap(colormap)
-#     colors = [mcolors.to_rgb(cmap(score)) for score in normalized_scores]
-#
-#     # Create a drawer to draw the molecule with highlighted atoms
-#     drawer = rdMolDraw2D.MolDraw2DCairo(500, 500)  # Set image size to 500x500 pixels
-#     draw_opts = drawer.drawOptions()
-#     draw_opts.useBWAtomPalette()  # Use black & white palette for atoms not highlighted
-#
-#     # Prepare a dictionary to highlight atoms with their corresponding colors
-#     highlight_dict = {idx: colors[idx] for idx in range(mol.GetNumAtoms())}
-#
-#     # Draw the molecule with attention-based highlighting
-#     rdMolDraw2D.PrepareAndDrawMolecule(drawer, mol, highlightAtoms=highlight_dict.keys(),
-#                                        highlightAtomColors=highlight_dict)
-#     drawer.FinishDrawing()
-#
-#     # Convert drawing to a PNG image
-#     png = drawer.GetDrawingText()
-#
-#     # Save the image to the specified file
-#     with open(output_file, "wb") as f:
-#         f.write(png)
-#
-#     # Display the image using matplotlib
-#     img = plt.imread(output_file)
-#     fig, ax = plt.subplots()
-#     ax.imshow(img)
-#     ax.axis('off')  # Hide axes for better visualization
-#
-#     # Add a colorbar to indicate the attention score range
-#     norm = plt.Normalize(vmin=0, vmax=1)
-#     sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-#     sm.set_array([])
-#     fig.colorbar(sm, ax=ax, orientation='vertical', fraction=0.046, pad=0.04)
-#
-#     plt.show()
 
 def visualize_molecule_with_attention(molecule_smiles, attention_scores_list, output_file="molecule_attention.png",
                                       colormap="Greens", title=['A', 'B1', 'B2', 'C1', 'C2', 'D']):

@@ -19,7 +19,7 @@ class Model(Module):
 
     def forward(self, Graph, features):
         g = self.gcn1(Graph)
-        # 检查 g 和 features 的形状是否匹配
+        # Check whether the shapes of g and features match
         if g.size(0) != features.size(0):
             raise ValueError(
                 f"Shape mismatch: g.shape[0]={g.size(0)} and features.shape[0]={features.size(0)} must match for concatenation. G = {Graph.size(0)}, F = {features.size(0)}")

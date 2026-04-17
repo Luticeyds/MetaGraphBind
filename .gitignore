@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+
+L-MolGAN/data/*.pkl.gz
+L-MolGAN/data/*.sparsedataset
+L-MolGAN/result/
+MetaGraphBind/data/generated_ligand.xlsx

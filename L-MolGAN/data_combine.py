@@ -10,7 +10,7 @@ def add_rf_to_c_atoms(mol):
 
     num_atoms = mol.GetNumAtoms()
 
-    # 遍历所有原子
+    # Traverse all atoms
     for atom_idx in range(num_atoms):
         editable_mol = Chem.RWMol(mol)
         atom = mol.GetAtomWithIdx(atom_idx)
@@ -45,15 +45,15 @@ def add_rf_to_c_atoms(mol):
     return result_mols, double_mols
 
 def add_rf_mt_to_mol(mol):
-    """查找所有不在环中的五碳链，并在首尾添加标识符'Cf'、'Es'。"""
+    """Find all five-carbon chains that are not in the ring, and add identifiers 'Cf' and 'Es' at the beginning and end."""
     paths = []
     modified_mols = []
     for atom in mol.GetAtoms():
-        # 获取从该原子出发的所有长度为4的路径（5个原子）
+        # Obtain all paths of length 4 (5 atoms) originating from this atom
         ps = Chem.FindAllPathsOfLengthN(mol, 4, rootedAtAtom=atom.GetIdx(), useBonds=False)
         paths.extend(ps)
 
-    # 过滤条件：所有原子为碳且不在环中
+    # Filter condition: All atoms are carbon and not in the ring
     carbon_paths = []
     for path in paths:
         all_carbon = True
@@ -69,10 +69,10 @@ def add_rf_mt_to_mol(mol):
         if all_carbon and not in_ring:
             carbon_paths.append(path)
 
-    # 去重处理
+    # Deduplication
     seen = set()
     for path in carbon_paths:
-        # 标准化路径表示（小端在前）
+        # Standardized path representation (with the least significant bit first)
         if path[0] > path[-1]:
             path = tuple(reversed(path))
         key = (path[0], path[-1]) + tuple(sorted(path[1:-1]))
@@ -81,7 +81,7 @@ def add_rf_mt_to_mol(mol):
 
             try:
                 ed_mol = Chem.EditableMol(Chem.Mol(mol))
-                # 在路径首尾添加Cf
+                # Add Cf at the beginning and end of the path
                 start_idx = path[0]
                 end_idx = path[-1]
                 if mol.GetAtomWithIdx(start_idx).GetTotalNumHs() == 0 or mol.GetAtomWithIdx(end_idx).GetTotalNumHs() == 0:
@@ -91,7 +91,7 @@ def add_rf_mt_to_mol(mol):
                 ed_mol.AddBond(start_idx, new_c1, Chem.BondType.SINGLE)
                 ed_mol.AddBond(end_idx, new_c2, Chem.BondType.SINGLE)
 
-                # 生成新分子并验证
+                # Generate new molecules and validate them
                 new_mol = ed_mol.GetMol()
                 Chem.SanitizeMol(new_mol)
                 modified_mols.append(new_mol)
@@ -167,36 +167,36 @@ def mol_combine(single_mols, double_mols, core_mols_file='data/core_mols.4.16.pk
         core_mols = pickle.load(file)
 
     for core_mol in core_mols:
-        # 针对每个核心分子执行替代
+        # Perform substitution for each core molecule
         for leaf_mol in single_mols:
-            # 检查并替代 A1 位点
+            # Check and replace the A1 site
             if any(atom.GetSymbol() == A1 for atom in core_mol.GetAtoms()):
                 mid_mol1 = combine_leaf_and_core(core_mol, leaf_mol, L, A1)
-                # 检查并替代 A2 位点
+                # Check and replace the A2 site
                 if any(atom.GetSymbol() == A2 for atom in mid_mol1.GetAtoms()):
                     mid_mol2 = combine_leaf_and_core(mid_mol1, leaf_mol, L, A2)
                 else:
                     mid_mol2 = mid_mol1
 
-                # 检查并替代 A3 位点
+                # Check and replace the A3 site
                 if any(atom.GetSymbol() == A3 for atom in mid_mol2.GetAtoms()):
                     mid_mol3 = combine_leaf_and_core(mid_mol2, leaf_mol, L, A3)
                 else:
                     mid_mol3 = mid_mol2
 
-                # 检查并替代 A4 位点
+                # Check and replace the A4 site
                 if any(atom.GetSymbol() == A4 for atom in mid_mol3.GetAtoms()):
                     mid_mol4 = combine_leaf_and_core(mid_mol3, leaf_mol, L, A4)
                 else:
                     mid_mol4 = mid_mol3
-                # 转换为 SMILES 表示
+                # Convert to SMILES notation
                 smi = Chem.MolToSmiles(mid_mol4)
                 result_smi.append(smi)
 
 
         if len(double_mols) > 0:
             for leaf_mol in double_mols:
-                # 检查并替代 B1/B2 位点
+                # Check and replace B1/B2 loci
                 if (any(atom.GetSymbol() == B1 for atom in core_mol.GetAtoms()) and
                         any(atom1.GetSymbol() == B2 for atom1 in core_mol.GetAtoms())):
                     mid_mol1 = combine_leaf_and_core(core_mol, leaf_mol, L, B1)
@@ -214,11 +214,11 @@ def mol_combine(single_mols, double_mols, core_mols_file='data/core_mols.4.16.pk
     return result_smi
 
 def read_smi_file(file_path):
-    """ 读取 .smi 文件并返回 SMILES 列表 """
+    """ Read the .smi file and return a list of SMILES """
     smiles_list = []
     with open(file_path, 'r') as file:
         for line in file:
-            smiles = line.strip().split()[0]  # 只取 SMILES，忽略可能存在的分子名称
+            smiles = line.strip().split()[0]  # Only take SMILES and ignore possible molecular names
             if smiles:
                 smiles_list.append(smiles)
     return smiles_list
@@ -238,7 +238,7 @@ def main(txt_file, out_file='zinc/data_4.10.xlsx', smiles_file='gdb/gdb_clean_sm
             resule_smiles.extend(re_smi)
             id_list.extend([id]*len(re_smi))
 
-    # 保存 resule_smiles 到一个单独的数据表
+    # Save resule_smiles to a separate data table
     smiles_df = pd.DataFrame({'ID': id_list, 'SMILES': resule_smiles})
     smiles_df.to_csv(smiles_file, index=False)
 

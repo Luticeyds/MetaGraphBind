@@ -162,82 +162,83 @@ def to_smiles(data: 'torch_geometric.data.Data',
     return smiles
 
 def from_smiles_to_brics(mol: Chem.Mol):
-    # 使用 BRICS 找到需要断裂的键
+    # Use BRICS to identify the bonds that need to be broken
     res = list(BRICS.FindBRICSBonds(mol))  # [((atom1, atom2), ('type1', 'type2'))]
 
-    # 初始化断裂键的信息
+    # Initialize information about the bonds to be broken
     break_bonds = [(atom1, atom2) for (atom1, atom2), _ in res]
 
-    # 将分子断裂，生成各个独立的片段
+    # Break the molecule into individual fragments
     atom_groups = []
     visited_atoms = set()
 
-    # 遍历所有原子，基于断裂键构建原子团
+    # Traverse all atoms and construct atom groups based on the broken bonds
     for atom_idx in range(mol.GetNumAtoms()):
         if atom_idx not in visited_atoms:
             stack = [atom_idx]
             current_group = set()
 
-            # 使用深度优先搜索 (DFS) 来遍历与当前原子连通的所有原子
+            # Use depth-first search (DFS) to traverse all atoms connected to the current atom
             while stack:
                 current_atom = stack.pop()
                 if current_atom not in visited_atoms:
                     visited_atoms.add(current_atom)
                     current_group.add(current_atom)
 
-                    # 将邻接的原子加入堆栈，忽略断裂的键
+                    # Add neighboring atoms to the stack while ignoring broken bonds
                     atom = mol.GetAtomWithIdx(current_atom)
                     for neighbor in atom.GetNeighbors():
                         neighbor_idx = neighbor.GetIdx()
                         if (current_atom, neighbor_idx) not in break_bonds and (
-                        neighbor_idx, current_atom) not in break_bonds:
+                            neighbor_idx, current_atom
+                        ) not in break_bonds:
                             stack.append(neighbor_idx)
 
             atom_groups.append(current_group)
 
-    # 将独立的片段存为 cliques，每个片段是一个原子团
+    # Store the individual fragments as cliques, where each fragment is an atom group
     cliques = [list(group) for group in atom_groups]
 
-    # 生成 `atom2cliques` 映射
+    # Generate the `atom2cliques` mapping
     atom2cliques = [[] for _ in range(mol.GetNumAtoms())]
     for idx, clique in enumerate(cliques):
         for atom in clique:
             atom2cliques[atom].append(idx)
 
-    # 通过 BRICS 键来生成 `edge_index`
+    # Generate `edge_index` through BRICS bonds
     edges = set()
     edge_attrs = []
 
     for (atom1, atom2), _ in res:
-        c1, c2 = atom2cliques[atom1][0], atom2cliques[atom2][0]  # 获取两个原子各自所在的团
-        if c1 != c2:  # 只添加不同团之间的连接
-            # 为边添加特征属性
+        c1, c2 = atom2cliques[atom1][0], atom2cliques[atom2][0]  # Get the clique index of each atom
+        if c1 != c2:  # Only add connections between different cliques
+            # Add feature attributes for the edge
             bond = mol.GetBondBetweenAtoms(atom1, atom2)
             if bond:
                 e = []
-                # 键类型特征
+                # Bond type feature
                 e.append(e_map['bond_type'].index(str(bond.GetBondType())))
-                # 立体化学特征
+                # Stereochemistry feature
                 e.append(e_map['stereo'].index(str(bond.GetStereo())))
-                # 是否共轭特征
+                # Conjugation feature
                 e.append(e_map['is_conjugated'].index(bond.GetIsConjugated()))
 
-                # 添加无向边以及其特征
+                # Add undirected edges and their features
                 edges.add((c1, c2))
                 edge_attrs.append(e)
                 edges.add((c2, c1))
                 edge_attrs.append(e)
 
-    # 将 edges 转换为 tensor 格式
+    # Convert edges to tensor format
     if len(edges) > 0:
         edge_index = torch.tensor(list(edges), dtype=torch.long).t().contiguous()
     else:
         edge_index = torch.empty((2, 0), dtype=torch.long)
 
-    # 将 edge_attr 转换为 tensor 格式
+    # Convert edge_attr to tensor format
     edge_attr = torch.tensor(edge_attrs, dtype=torch.float)
 
-    # 生成最终的 `atom2clique` 映射
+    # Generate the final `atom2clique` mapping
     rows = [[i] * len(atom2cliques[i]) for i in range(mol.GetNumAtoms())]
     row = torch.tensor(list(chain.from_iterable(rows)))
     col = torch.tensor(list(chain.from_iterable(atom2cliques)))
@@ -247,7 +248,7 @@ def from_smiles_to_brics(mol: Chem.Mol):
 
 
 def get_atom_features(mol: Any) -> torch.Tensor:
-    """从分子中提取原子的特征并返回特征矩阵"""
+    """Extract atom features from a molecule and return the feature matrix."""
     atom_features = []
     for atom in mol.GetAtoms():
         row: List[int] = []
@@ -267,42 +268,48 @@ def get_atom_features(mol: Any) -> torch.Tensor:
 
 
 def create_brics_data_from_molecule(mol: Any) -> Data:
-    # 调用 from_smiles_to_brics 函数
+    # Call the from_smiles_to_brics function
     edge_index, atom2clique, num_cliques, edge_attr = from_smiles_to_brics(mol)
 
-    # 提取原子特征
-    atom_features = get_atom_features(mol)  # 假设该函数返回一个形状为 (num_atoms, num_atom_features) 的 tensor
+    # Extract atom features
+    atom_features = get_atom_features(mol)  # Assume this function returns a tensor of shape (num_atoms, num_atom_features)
 
-    # 构建节点特征 x，维度为 (num_cliques, num_atom_features)
-    num_atom_features = atom_features.shape[1]  # 原子特征的维度
-    x = torch.zeros(num_cliques, num_atom_features, dtype=torch.float)  # 为连通团创建特征矩阵
+    # Construct node features x with shape (num_cliques, num_atom_features)
+    num_atom_features = atom_features.shape[1]  # Dimension of atom features
+    x = torch.zeros(num_cliques, num_atom_features, dtype=torch.float)  # Create a feature matrix for cliques
 
-    # 据 atom2clique 填充节点特征
-    # 遍历每个团，找到其对应的原子索引
+    # Fill node features according to atom2clique
+    # Traverse each clique and find its corresponding atom indices
     for clique_idx in range(num_cliques):
-        # 找到属于当前团的所有原子
+        # Find all atoms belonging to the current clique
         atoms_in_clique = (atom2clique[1] == clique_idx).nonzero(as_tuple=True)[0]
-        # 计算当前团的原子特征之和
+        # Compute the sum of atom features in the current clique
         clique_features = atom_features[atoms_in_clique].sum(dim=0)
-        x[clique_idx] = clique_features  # 将聚合后的特征赋值给连通团的特征
+        x[clique_idx] = clique_features  # Assign the aggregated features to the clique
 
-    # edge_index 和 edge_attr 已经由 tree_decomposition 返回，无需额外构建
+    # edge_index and edge_attr have already been returned by tree_decomposition, so no additional construction is needed
 
-    # 创建 Data 对象
-    data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr, num_cliques=num_cliques,
-                atom2clique_index = atom2clique)
+    # Create the Data object
+    data = Data(
+        x=x,
+        edge_index=edge_index,
+        edge_attr=edge_attr,
+        num_cliques=num_cliques,
+        atom2clique_index=atom2clique
+    )
     return data
 
+
 def visualize_with_geometric(data: Data):
-    # 将 Data 转换为 NetworkX 图
+    # Convert Data to a NetworkX graph
     G = to_networkx(data, to_undirected=True)
 
-    # 绘制图
+    # Draw the graph
     plt.figure(figsize=(8, 6))
     pos = nx.spring_layout(G)
     nx.draw(G, pos, with_labels=True, node_color='lightgreen', node_size=500, font_size=10)
 
-    # 添加节点特征标签，选择第一个特征
+    # Add node feature labels, using the first feature
     labels = {i: f"{i}\n{data.x[i][0].item():.2f}" for i in range(data.x.size(0))}
     nx.draw_networkx_labels(G, pos, labels, font_size=8)
 

@@ -8,72 +8,73 @@ import re
 import joblib
 import pandas as pd
 
-# ----------------------------- 配置参数 -----------------------------
-INPUT_FILE = "zinc/3.28.txt"    # 输入文件名
-OUTPUT_FILE = "zinc/clean_3.28.txt"     # 输出文件名
+# ----------------------------- Configuration Parameters -----------------------------
+INPUT_FILE = "zinc/3.28.txt"  # Input file name
+OUTPUT_FILE = "zinc/clean_3.28.txt"  # Output file name
 EXCEL_FILE = "zinc/clean_3.28.xlsx"
 RESULT_FILE = "zinc/result_3.28.xlsx"
 
-# -------------------- 定义不稳定/难合成基团的SMARTS模式 --------------------
+# -------------------- Define SMARTS patterns for unstable / hard-to-synthesize groups --------------------
 unstable_smarts = [
-    # 易水解/分解基团
-    '[OX2]-[OX2]',             # 过氧化物
-    'S-C(=O)-C',               # 硫酯
-    '[S](C)(C)O',              # 缩硫酮/缩硫醛
-    '[N-]=[N+]=[N-]',          # 叠氮化物
-    '[N]=[O]',                 # 亚硝基
-    '[N]=[N]',                 # 氮烯
-    '[N]#[N]',                 # 重氮基
-    '[NX3][OX1]',              # 硝基氧基
-    '[CX3](=O)-[NX3H2]',       # 氨基酰基
-    'C=[C]=[C]',               # 共轭烯
-    'C#C-C#C',                 # 连续炔基
-    '[C]=[C]-[C]=O',           # α,β-不饱和羰基（迈克尔受体）
-    '[CX3](=O)-[OX2H0]',       # # 酯基
-    '[Cl,Br,I]-C(-C)(-C)-C',   # 苄位不稳定的氢（如苄氯）
-    '[Cl]-[C;!$(C-[O,N,S])]',  # 有机氯化物 合成问题
-    '[PX4]=[OX1]'              # 不稳定磷酰基
-    '[SX2]-[OX2]',             # 硫氧(S-O)
-    '[SX2]-[SX2]',             # 二硫键(S-S)
-    '[C]#[N]-[OX2]',           # 氰基衍生物
-    '[NX1]#[CX3]-[CX3]=O',     # 亚氰酸酯
-    '[CX3;H0;R0]=[CX3;H0;R0]', # 高取代双键（两侧无氢且非环）
-    # 高张力结构
-    'C1OC1',                   # 环氧乙烷（三元环）
-    'C1CC1',                   # 三元环（环丙烷类）
-    'C1CCC1',                  # 四元环（环丁烷类）
-    # 难合成结构
-    '[r{12-}]',                # 大环（>12元环）
-    '[C&$(C@*)][C&$(C@*)]',    # 连续手性中心
+    # Easily hydrolyzed / decomposable groups
+    '[OX2]-[OX2]',  # Peroxide
+    'S-C(=O)-C',  # Thioester
+    '[S](C)(C)O',  # Thioketal / thioacetal
+    '[N-]=[N+]=[N-]',  # Azide
+    '[N]=[O]',  # Nitroso
+    '[N]=[N]',  # Nitrene
+    '[N]#[N]',  # Diazo group
+    '[NX3][OX1]',  # Nitro-oxygen group
+    '[CX3](=O)-[NX3H2]',  # Amide group
+    'C=[C]=[C]',  # Conjugated alkene
+    'C#C-C#C',  # Consecutive alkynes
+    '[C]=[C]-[C]=O',  # α,β-unsaturated carbonyl (Michael acceptor)
+    '[CX3](=O)-[OX2H0]',  # Ester group
+    '[Cl,Br,I]-C(-C)(-C)-C',  # Unstable benzylic hydrogen (e.g., benzyl chloride)
+    '[Cl]-[C;!$(C-[O,N,S])]',  # Organic chlorides (synthetic issues)
+    '[PX4]=[OX1]'  # Unstable phosphoryl group
+    '[SX2]-[OX2]',  # Sulfur-oxygen (S-O)
+    '[SX2]-[SX2]',  # Disulfide bond (S-S)
+    '[C]#[N]-[OX2]',  # Cyanide derivatives
+    '[NX1]#[CX3]-[CX3]=O',  # Isocyanate
+    '[CX3;H0;R0]=[CX3;H0;R0]',  # Highly substituted double bond (no hydrogens, non-ring)
+
+    # High-strain structures
+    'C1OC1',  # Epoxide (three-membered ring)
+    'C1CC1',  # Three-membered ring (cyclopropane)
+    'C1CCC1',  # Four-membered ring (cyclobutane)
+
+    # Hard-to-synthesize structures
+    '[r{12-}]',  # Macrocycles (>12-membered rings)
+    '[C&$(C@*)][C&$(C@*)]',  # Consecutive chiral centers
 ]
 
-# 转换为RDKit的Mol对象
+# Convert to RDKit Mol objects
 unstable_patterns = [Chem.MolFromSmarts(s) for s in unstable_smarts]
 
 
-# ----------------------------- 辅助函数 -----------------------------
-
-
+# ----------------------------- Helper Functions -----------------------------
 
 
 def is_chelator_valid(mol):
-    """综合检查分子稳定性与合成可行性"""
-    # 1. 跳过无效分子
+    """Comprehensively check molecular stability and synthetic feasibility."""
+    # 1. Skip invalid molecules
     if mol is None:
         return False
 
-    # 2. Sanitize检查
+    # 2. Sanitize check
     try:
         Chem.SanitizeMol(mol)
     except:
         return False
 
-    # 3. 子结构匹配排除不稳定基团
+    # 3. Exclude unstable groups through substructure matching
     for pattern in unstable_patterns:
         if mol.HasSubstructMatch(pattern):
             return False
 
     return True
+
 
 def df_to_logk(smi, model_file='trans_1.16_4_all.pt'):
     class ValDataset(Dataset):
@@ -186,15 +187,15 @@ def to_e(smiles):
     result_df = pd.DataFrame(result_data)
     result_df.to_excel(EXCEL_FILE, index=False)
 
-# ----------------------------- 主流程 -----------------------------
+# ----------------------------- Main Workflow -----------------------------
 def filter_smiles_file():
-    # 读取文件并过滤非SMILES行
+    # Read the file and filter out non-SMILES lines
     with open(INPUT_FILE, 'r') as f:
         lines = [line.strip() for line in f if line.strip() and not line.startswith(('Mean', 'Max'))]
 
     valid_smiles = []
     for line in lines:
-        # 提取SMILES（忽略可能存在的数值后缀）
+        # Extract the SMILES string (ignore possible numeric suffixes)
         smi = re.split(r'\s+', line)[0]
         mol = Chem.MolFromSmiles(smi)
         if is_chelator_valid(mol):
@@ -202,12 +203,12 @@ def filter_smiles_file():
 
     to_e(valid_smiles)
 
-    # 保存结果
+    # Save the results
     with open(OUTPUT_FILE, 'w') as f:
         f.write("\n".join(valid_smiles))
 
-    print(f"筛选完成！原始分子数: {len(lines)}, 有效分子数: {len(valid_smiles)}")
-    print(f"结果已保存至: {OUTPUT_FILE}")
+    print(f"Filtering completed! Original number of molecules: {len(lines)}, valid number of molecules: {len(valid_smiles)}")
+    print(f"Results have been saved to: {OUTPUT_FILE}")
 
 
 if __name__ == "__main__":

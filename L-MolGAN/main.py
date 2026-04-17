@@ -1,5 +1,5 @@
 import os
-import sys
+import torch
 import argparse
 from solver import Solver
 from data_loader import get_loader
@@ -32,11 +32,6 @@ def main(config):
 
 
 if __name__ == '__main__':
-    sys.stdout = open('output.txt', 'w')
-
-
-
-
     parser = argparse.ArgumentParser()
 
     # Model configuration.
@@ -52,6 +47,7 @@ if __name__ == '__main__':
     parser.add_argument('--post_method', type=str, default='softmax', choices=['softmax', 'soft_gumbel', 'hard_gumbel'])
 
     # Training configuration.
+    parser.add_argument('--device', type=str, default='cuda:0' if torch.cuda.is_available() else 'cpu', help='cuda:0 / cpu')
     parser.add_argument('--batch_size', type=int, default=16, help='mini-batch size')
     parser.add_argument('--num_iters', type=int, default=200000, help='number of total iterations for training D')
     parser.add_argument('--num_iters_decay', type=int, default=100000, help='number of iterations for decaying lr')
@@ -63,6 +59,7 @@ if __name__ == '__main__':
     parser.add_argument('--beta2', type=float, default=0.999, help='beta2 for Adam optimizer')
     parser.add_argument('--resume_iters', type=int, default=None, help='resume training from this step')
 
+
     # Test configuration.
     parser.add_argument('--test_iters', type=int, default=200000, help='test model from this step')
 
@@ -73,17 +70,22 @@ if __name__ == '__main__':
 
     # Directories.
     parser.add_argument('--mol_data_dir', type=str, default='data/gdb9_9nodes.sparsedataset')
-    file = 'zinc/'
-    parser.add_argument('--log_dir', type=str, default=file+'logs')
-    parser.add_argument('--model_save_dir', type=str, default=file+'models')
-    parser.add_argument('--sample_dir', type=str, default=file+'samples')
-    parser.add_argument('--result_dir', type=str, default=file+'results')
+    parser.add_argument('--log_dir', type=str, default='result/logs')
+    parser.add_argument('--model_save_dir', type=str, default='result/models')
+    parser.add_argument('--sample_dir', type=str, default='result/samples')
+    parser.add_argument('--result_dir', type=str, default='result/results')
 
     # Step size.
     parser.add_argument('--log_step', type=int, default=20)
     parser.add_argument('--sample_step', type=int, default=1000)
     parser.add_argument('--model_save_step', type=int, default=10000)
     parser.add_argument('--lr_update_step', type=int, default=1000)
+
+    # log K1 indicator model
+    parser.add_argument('--model_file', type=str, default='data/model_transfer2_teacher.pt')
+    parser.add_argument('--scaler_file', type=str, default='data/scaler.joblib')
+    parser.add_argument('--feature_df', type=str, default='data/feature.pkl')
+    parser.add_argument('--core_mols_file', type=str, default='data/core_mols.pkl')
 
     config = parser.parse_args()
     print(config)

@@ -123,7 +123,7 @@ def from_smiles(mol, with_hydrogen: bool = False,
     return Data(x=x.to(torch.float), edge_index=edge_index.to(torch.long), edge_attr=edge_attr.to(torch.float))
 
 class ValDataset(Dataset):
-    def __init__(self, mols_list):
+    def __init__(self, mols_list, feature_df, scaler_file):
         """
         Initialize the JessDataset class.
 
@@ -134,9 +134,9 @@ class ValDataset(Dataset):
         self.mols_list = mols_list
         self.supplement_data = None
         self.labels = None
-        self.feature_df = pd.read_pickle('data/feature.pkl').fillna(0)
+        self.feature_df = pd.read_pickle(feature_df).fillna(0)
         self.seed = 42
-        self.scaler = joblib.load('data/scaler.joblib')
+        self.scaler = joblib.load(scaler_file)
         self.device = 'cuda:0'
         self.train_ratio = 0.8
         self.batch_size = 4096
@@ -191,14 +191,14 @@ class ValDataset(Dataset):
                 self.supplement_data = feature_data
                 self.labels = log_k
 
-def data_combine(mols):
+def data_combine(mols, core_mols_file='data/core_mols.pkl'):
     def add_rf_to_c_atoms(mol):
         unique_mols = set()
         result_mols = []
 
         num_atoms = mol.GetNumAtoms()
 
-        # 遍历所有原子
+        # Traverse all atoms
         for atom_idx in range(num_atoms):
             editable_mol = Chem.RWMol(mol)
             atom = mol.GetAtomWithIdx(atom_idx)
@@ -233,15 +233,15 @@ def data_combine(mols):
         return result_mols, double_mols
 
     def add_rf_mt_to_mol(mol):
-        """查找所有不在环中的五碳链，并在首尾添加标识符'Cf'、'Es'。"""
+        """Find all five-carbon chains that are not in the ring, and add identifiers 'Cf' and 'Es' at the beginning and end."""
         paths = []
         modified_mols = []
         for atom in mol.GetAtoms():
-            # 获取从该原子出发的所有长度为4的路径（5个原子）
+            # Obtain all paths of length 4 (5 atoms) originating from this atom
             ps = Chem.FindAllPathsOfLengthN(mol, 4, rootedAtAtom=atom.GetIdx(), useBonds=False)
             paths.extend(ps)
 
-        # 过滤条件：所有原子为碳且不在环中
+        # Filter condition: All atoms are carbon and not in the ring
         carbon_paths = []
         for path in paths:
             all_carbon = True
@@ -257,10 +257,10 @@ def data_combine(mols):
             if all_carbon and not in_ring:
                 carbon_paths.append(path)
 
-        # 去重处理
+        # Deduplication
         seen = set()
         for path in carbon_paths:
-            # 标准化路径表示（小端在前）
+            # Standardized path representation (with the least significant bit first)
             if path[0] > path[-1]:
                 path = tuple(reversed(path))
             key = (path[0], path[-1]) + tuple(sorted(path[1:-1]))
@@ -269,7 +269,7 @@ def data_combine(mols):
 
                 try:
                     ed_mol = Chem.EditableMol(Chem.Mol(mol))
-                    # 在路径首尾添加Cf
+                    # Add Cf at the beginning and end of the path
                     start_idx = path[0]
                     end_idx = path[-1]
                     if mol.GetAtomWithIdx(start_idx).GetTotalNumHs() == 0 or mol.GetAtomWithIdx(
@@ -280,7 +280,7 @@ def data_combine(mols):
                     ed_mol.AddBond(start_idx, new_c1, Chem.BondType.SINGLE)
                     ed_mol.AddBond(end_idx, new_c2, Chem.BondType.SINGLE)
 
-                    # 生成新分子并验证
+                    # Generate new molecules and validate them
                     new_mol = ed_mol.GetMol()
                     Chem.SanitizeMol(new_mol)
                     modified_mols.append(new_mol)
@@ -331,7 +331,7 @@ def data_combine(mols):
 
         return back
 
-    def mol_combine(single_mols, double_mols, core_mols_file='data/core_mols.4.16.pkl'):
+    def mol_combine(single_mols, double_mols):
         result_mol = []
         L = 'Rf'
         L2 = 'Mt'
@@ -347,34 +347,34 @@ def data_combine(mols):
             core_mols = pickle.load(file)
 
         for core_mol in core_mols:
-            # 针对每个核心分子执行替代
+            # Perform substitution for each core molecule
             for leaf_mol in single_mols:
-                # 检查并替代 A1 位点
+                # Check and replace the A1 site
                 if any(atom.GetSymbol() == A1 for atom in core_mol.GetAtoms()):
                     mid_mol1 = combine_leaf_and_core(core_mol, leaf_mol, L, A1)
-                    # 检查并替代 A2 位点
+                    # Check and replace the A2 site
                     if any(atom.GetSymbol() == A2 for atom in mid_mol1.GetAtoms()):
                         mid_mol2 = combine_leaf_and_core(mid_mol1, leaf_mol, L, A2)
                     else:
                         mid_mol2 = mid_mol1
 
-                    # 检查并替代 A3 位点
+                    # Check and replace the A3 site
                     if any(atom.GetSymbol() == A3 for atom in mid_mol2.GetAtoms()):
                         mid_mol3 = combine_leaf_and_core(mid_mol2, leaf_mol, L, A3)
                     else:
                         mid_mol3 = mid_mol2
 
-                    # 检查并替代 A4 位点
+                    # Check and replace the A4 site
                     if any(atom.GetSymbol() == A4 for atom in mid_mol3.GetAtoms()):
                         mid_mol4 = combine_leaf_and_core(mid_mol3, leaf_mol, L, A4)
                     else:
                         mid_mol4 = mid_mol3
-                    # 转换为 SMILES 表示
+                    # Convert to SMILES notation
                     result_mol.append(mid_mol4)
 
             if len(double_mols) > 0:
                 for leaf_mol in double_mols:
-                    # 检查并替代 B1/B2 位点
+                    # Check and replace B1/B2 loci
                     if (any(atom.GetSymbol() == B1 for atom in core_mol.GetAtoms()) and
                             any(atom1.GetSymbol() == B2 for atom1 in core_mol.GetAtoms())):
                         mid_mol1 = combine_leaf_and_core(core_mol, leaf_mol, L, B1)
@@ -403,12 +403,12 @@ class MolecularMetrics(object):
     @staticmethod
     def filter_molecules_mol(mol_list):
         """
-        过滤 RDKit Mol 对象：
-        1. 去芳香性（将芳香原子改为非芳香）
-        2. 保留 O=、=O、C#N、N#C 结构
-        3. 去除无效分子和原子数大于 9 的分子
-        4. 去重
-        返回处理后的 Mol 对象列表
+        Filtering RDKit Mol objects:
+        1. De-aromatization (converting aromatic atoms to non-aromatic)
+        2. Retain O=, =O, C#N, N#C structures
+        3. Remove invalid molecules and molecules with more than 9 atoms
+        4. Deduplication
+        Return the list of processed Mol objects
         """
         filtered_mols = []
 
@@ -426,7 +426,7 @@ class MolecularMetrics(object):
             s = s.replace('=', '').replace('#', '')
             s = s.replace('TEMP_O_EQUAL', 'O=').replace('TEMP_EQUAL_O', '=O').replace('TEMP_C_N', 'C#N').replace(
                 'TEMP_N_C', 'N#C')
-            # 读取分子并跳过无效SMILES
+            # Read molecules and skip invalid SMILES
             new_mol = Chem.MolFromSmiles(s)
             if new_mol is None:
                 continue
@@ -435,13 +435,14 @@ class MolecularMetrics(object):
         return filtered_mols
 
     @staticmethod
-    def delta_logk_value(mols, model_file='data/model_ft_2_2_6.9_teacher_all.pt'):
+    def delta_logk_value(mols, model_file, core_mols_file, feature_df, scaler_file):
 
         device = 'cuda:0'
 
         data = MolecularMetrics.filter_molecules_mol(mols)
+        data = data_combine(data, core_mols_file)
         if len(data) != 0:
-            dataloader = ValDataset(data).val_loader
+            dataloader = ValDataset(data, feature_df, scaler_file).val_loader
         else:
             return 0.0, 0.0
 
@@ -524,18 +525,19 @@ class MolecularMetrics(object):
     def novel_total_score(mols, data):
         valid_mols = MolecularMetrics.valid_filter(mols)
 
-        # 如果 valid_mols 为空，返回默认值或适当处理
+        # If valid_mols is empty, return a default value or handle it appropriately
         if len(valid_mols) == 0:
-            return np.nan  # 或者选择其他处理方法，如返回 0 或直接跳过
+            return np.nan  # Alternatively, choose another handling method, such as returning 0 or skipping directly
         else:
-            # 计算 novel_scores，并确保无效值处理
+            # Compute novel_scores and ensure invalid values are handled
             novel_scores = MolecularMetrics.novel_scores(valid_mols, data)
 
-            # 如果 novel_scores 中有 NaN 或 inf，进行处理
+            # Handle NaN or inf values in novel_scores
             novel_scores = np.nan_to_num(novel_scores, nan=np.nan, posinf=np.inf, neginf=-np.inf)
 
-            # 计算均值，忽略 NaN 值
+            # Compute the mean while ignoring NaN values
             return np.nanmean(novel_scores)
+
 
     @staticmethod
     def unique_scores(mols):
@@ -744,8 +746,8 @@ def samples(data, model, session, embeddings, sample=False):
     return mols
 
 smi_list = []
-def all_scores(mols, data, i, norm=False):
-    max_logk, mean_logk = MolecularMetrics.delta_logk_value(mols)
+def all_scores(mols, data, i, model_file, core_mols_file, feature_df, scaler_file, norm=False):
+    max_logk, mean_logk = MolecularMetrics.delta_logk_value(mols,model_file, core_mols_file, feature_df, scaler_file)
     m0 = {k: list(filter(lambda e: e is not None, v)) for k, v in {
         'SA score': MolecularMetrics.synthetic_accessibility_score_scores(mols, norm=norm),
         'diversity score': MolecularMetrics.diversity_scores(mols, data),
@@ -755,22 +757,6 @@ def all_scores(mols, data, i, norm=False):
     m1 = {'valid score': MolecularMetrics.valid_total_score(mols) * 100,
           'unique score': MolecularMetrics.unique_total_score(mols) * 100,
           'novel score': MolecularMetrics.novel_total_score(mols, data) * 100}
-
-    valid_molecules = list(filter(MolecularMetrics.valid_lambda_special, mols))
-    txt_file = 'gdb/gdb_1.28.txt'
-    all_file = 'gdb/gdb_all_1.28.txt'
-    # 使用 set 去重
-    unique_molecules = set(map(lambda x: Chem.MolToSmiles(x), valid_molecules))
-    with open(txt_file, 'a') as f:
-        f.write(str(i) + "\n")
-        for smi in unique_molecules:
-            if smi not in smi_list:
-                smi_list.append(smi)
-                f.write(smi + "\n")
-    with open(all_file, 'a') as f:
-        f.write(str(i) + "\n")
-        for smi in unique_molecules:
-            f.write(smi + "\n")
 
     return m0, m1
 

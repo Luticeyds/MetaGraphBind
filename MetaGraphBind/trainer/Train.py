@@ -213,7 +213,7 @@ class Trainer(object):
             self.best_dict['patience'] = 0
             self.best_dict['epoch'] = self.epoch
             self.best_dict['model_wts'] = copy.deepcopy(self.model.state_dict())
-            torch.save(self.best_dict['model_wts'], 'net/' + self.model_name + '.pt')
+            torch.save(self.best_dict['model_wts'], self.model_name + '.pt')
             print(f'Epoch {self.epoch}, lr: {self.lr:.6f} ,Train Loss: {train_loss:.4f}, Test Loss: {test_loss:.4f};Train R2: {train_r2:.4f}, Test R2: {test_r2:.4f}')
         else:
             self.best_dict['patience'] += 1
@@ -230,7 +230,7 @@ class Trainer(object):
         """
         print('Best epoch: ', self.best_dict['epoch'])
         double_lines_graph(self.train_ls, self.test_ls, a_label='train loss', b_label='test loss',
-                           net_name='net/' + self.model_name + 'end')
+                           net_name=self.model_name + 'end')
         density_graph(self.best_dict['train_label'], self.best_dict['train_out'],
                       self.best_dict['train_r2'],
                       net_name=self.model_name + ' train,best epoch=' + str(self.best_dict['epoch']),
@@ -246,24 +246,22 @@ class Trainer(object):
         Fine-tune the model, saving the best model based on test R2 score.
         """
         print(self.model_name + ' start')
-        # torch.manual_seed(int(self.model_name[-1]) * 5)  # 使用模型编号生成种子
-        model_state_dict = torch.load('net/' + self.model_name + '.pt')
+        model_state_dict = torch.load(self.model_name + '.pt')
         self.model.load_state_dict(model_state_dict)
         self.model = self.model.to(self.device)
 
 
-        # self.model.freeze_layers()  # 冻结层
         epochs = 10000
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.lr, betas=(self.args.beta1, self.args.beta2),
                                            weight_decay=self.args.weight_decay, eps=self.args.eps)
         best_r2 = -10
         patience = 0
         for epoch in range(epochs):
-            # 训练部分
+            # Train
             train_out, train_label, train_loss, train_r2 = self.train()
             self.train_ls.append(train_loss)
 
-            # 测试部分
+            # Test
             test_out, test_label, test_loss, test_r2 = self.test()
             self.test_ls.append(test_loss)
 
@@ -275,15 +273,14 @@ class Trainer(object):
                 best_test_y = test_label
                 best_test_out = test_out
                 model_wts = copy.deepcopy(self.model.state_dict())
-                torch.save(model_wts, 'net/trans_' + self.model_name + '.pt')
+                torch.save(model_wts, 'trans_' + self.model_name + '.pt')
 
             else:
                 patience += 1
-            if patience >= 500:
+            if patience >= self.patience:
                 break
             print(
                 f'Epoch {epoch + 1}, Train Loss: {train_loss:.4f}, Test Loss: {test_loss:.4f}; Train R2: {train_r2:.4f}, Test R2: {test_r2:.4f}')
-        # 可视化
         density_graph(best_train_y, best_train_out, net_name=self.model_name + '_trans_train', mode='train')
         density_graph(best_test_y, best_test_out, net_name=self.model_name + '_trans_test', mode='test')
 
@@ -316,7 +313,7 @@ class Trainer(object):
 
         def distribute_shap_values_to_atoms(atom2clique, num_atoms, shap_values):
             """
-            将每个 clique 的 SHAP 值分配给其包含的原子
+            Assign the SHAP value of each clique to the atoms it contains
             :param atom2clique: Tensor or numpy array of shape (2, num_atoms), provides the mapping of each atom to its clique.
             :param num_atoms: Total number of atoms in the molecule.
             :param shap_values: List of SHAP values corresponding to each clique.
@@ -324,7 +321,7 @@ class Trainer(object):
             """
             atom_weights = np.zeros(num_atoms)
 
-            # 遍历每个原子，并根据其所属的 clique 分配 SHAP 值
+            # Traverse each atom and assign a SHAP value based on the clique it belongs to
             for atom_idx in range(atom2clique.shape[1]):
                 clique_idx = atom2clique[1, atom_idx]
                 if clique_idx < len(shap_values):
@@ -332,8 +329,7 @@ class Trainer(object):
 
             return atom_weights
 
-        # torch.manual_seed(int(self.model_name[-1]) * 5)  # 使用模型编号生成种子
-        model_state_dict = torch.load('net/' + self.model_name + '.pt')
+        model_state_dict = torch.load(self.model_name + '.pt')
         self.model.load_state_dict(model_state_dict)
         self.model = self.model.to(self.device)
 
@@ -351,37 +347,27 @@ class Trainer(object):
 
                 output = self.model(Graph, features)
 
-                # 循环处理每一个图
                 for target_graph_index in range(len(labels)):
-                    # 提取单个图
+
                     sample_graph = self.extract_single_graph(Graph, target_graph_index)
                     smiles_list.append(sample_graph.smiles)
                     num_atoms = Chem.MolFromSmiles(sample_graph.smiles).GetNumAtoms()
-                    sample_graph.x.requires_grad = True  # 确保节点特征可以计算梯度
+                    sample_graph.x.requires_grad = True
                     sample_feature = features[target_graph_index].unsqueeze(0)
 
-                    # 创建前向传递函数，用于 Integrated Gradients
                     def forward_func(node_features):
-                        # 创建一个新的图对象，使用提供的节点特征
                         graph = copy.deepcopy(sample_graph)
-
-                        # 更新图的节点特征
                         graph.x = node_features
-
-                            # 前向传播调用模型
                         output= self.model(graph, sample_feature)
                         return output
 
 
 
-                    node_weights = torch.ones(sample_graph.x.size(0))  # 默认情况下每个节点权重为 1
-                    # 完全图
-                    # 实例化 IntegratedGradients
-                    integrated_gradients = IntegratedGradients(forward_func)
-                    # 计算归因值（只针对节点特征）
-                    baseline_features = torch.zeros_like(sample_graph.x)  # 基准值设置为全零
+                    node_weights = torch.ones(sample_graph.x.size(0))
 
-                    # 调用 attribute 函数
+                    integrated_gradients = IntegratedGradients(forward_func)
+                    baseline_features = torch.zeros_like(sample_graph.x)
+
                     node_attributions = integrated_gradients.attribute(
                         inputs=sample_graph.x,
                         baselines=baseline_features
@@ -389,10 +375,8 @@ class Trainer(object):
 
                     weighted_node_importance = []
                     for node_idx in range(sample_graph.x.size(0)):
-                        # 提取当前节点的所有特征的归因值
-                        node_attribution = node_attributions[node_idx]  # 形状为 [num_features]
+                        node_attribution = node_attributions[node_idx]
 
-                        # 计算节点加权归因值总和
                         weighted_sum_attribution = torch.sum(node_attribution)
                         weighted_node_importance.append(weighted_sum_attribution.item())
                     shap_value1.append(copy.deepcopy(weighted_node_importance))
@@ -425,23 +409,26 @@ class Trainer(object):
 
     def extract_single_graph(self, batch, target_graph_index):
         """
-        从 PyTorch Geometric 的 Batch 对象中提取单个图。
+        Extract a single graph from a PyTorch Geometric Batch object.
 
-        参数：
-        - batch (torch_geometric.data.Batch): 包含多个图的 Batch 对象。
-        - target_graph_index (int): 需要提取的目标图的索引。
+        Args:
+        - batch (torch_geometric.data.Batch): A Batch object containing multiple graphs.
+        - target_graph_index (int): The index of the target graph to extract.
 
-        返回：
-        - single_graph (torch_geometric.data.Data): 提取的单个图的 Data 对象。
+        Returns:
+        - single_graph (torch_geometric.data.Data): The extracted Data object of a single graph.
         """
-        # 使用 to_data_list 方法将 Batch 拆分为单个图的列表
+        # Use the to_data_list method to split the Batch into a list of individual graphs
         data_list = batch.to_data_list()
 
-        # 提取目标图
+        # Extract the target graph
         if target_graph_index < len(data_list):
             single_graph = data_list[target_graph_index]
         else:
-            raise IndexError(f"目标图索引 {target_graph_index} 超出范围，Batch 中只有 {len(data_list)} 个图。")
+            raise IndexError(
+                f"Target graph index {target_graph_index} is out of range; "
+                f"the Batch contains only {len(data_list)} graphs."
+            )
 
         return single_graph
 
@@ -493,7 +480,7 @@ class MT_Trainer(object):
         self.best_T = 0.0
         self.best_S = 0.0
         self.save_name = args.save_name
-        self.student_model.freeze_layers()  # 冻结层
+        self.student_model.freeze_layers()
 
 
     def update_ema_variables(self):
@@ -507,7 +494,9 @@ class MT_Trainer(object):
         return graph
 
     def run(self):
+        best_teacher = 0.0
         best_train = 0.0
+        patience = 0
         for _ in range(self.epochs):
             self.epoch += 1
             train_loss, train_r2 = self.train()
@@ -519,73 +508,75 @@ class MT_Trainer(object):
             print(f'Epoch: {self.epoch}, Train Loss: {train_loss:.4f}, Train R2:  {train_r2:.4f}')
             print(f"Teacher Model - Loss: {teacher_loss:.4f}, R2: {teacher_r2:.4f}")
             print(f"Student Model - Loss: {student_loss:.4f}, R2: {student_r2:.4f}")
+            if teacher_r2 > best_teacher:
+                best_teacher = teacher_r2
+                patience = 0
+            else:
+                patience += 1
+            if patience >= self.patience:
+                break
         print(f"Best train: {best_train:.4f}")
         print(f"Best teacher: {self.best_T:.4f}")
         print(f"Best student: {self.best_S:.4f}")
 
-        # val_out, val_label, avg_loss, R2 = self.test(which_model='val')
-        # print(f"Best student-Val-Loss: {avg_loss:.4f}, R2: {R2:.4f}")
-        # pre_list = val_out.detach().cpu().numpy().reshape(-1).reshape(-1, 1)
-        # labels_list = val_label.detach().cpu().numpy().reshape(-1).reshape(-1, 1)
-        # pre_values = pre_list.reshape(-1)
-        # labels_values = labels_list.reshape(-1)
-        # data = {'Pre': pre_values, 'Labels': labels_values}
-        # df = pd.DataFrame(data)
-        # df.to_excel(self.save_name + 'val_out.xlsx')
-
-
+        val_out, val_label, avg_loss, R2 = self.test(which_model='val')
+        print(f"Best student-Val-Loss: {avg_loss:.4f}, R2: {R2:.4f}")
+        pre_list = val_out.detach().cpu().numpy().reshape(-1).reshape(-1, 1)
+        labels_list = val_label.detach().cpu().numpy().reshape(-1).reshape(-1, 1)
+        pre_values = pre_list.reshape(-1)
+        labels_values = labels_list.reshape(-1)
+        data = {'Pre': pre_values, 'Labels': labels_values}
+        df = pd.DataFrame(data)
+        df.to_excel(self.save_name + 'val_out.xlsx')
 
     def train(self):
         self.student_model.train()
         self.teacher_model.train()
-        # indices = random.sample(range(len(self.unlabeled_loader)), len(self.unlabeled_loader)//4)  # 随机选择索引  1/4
-        # start = min(indices)
-        # batches = list(islice(self.unlabeled_loader, start, max(indices) + 1))  # 修正切片范围
-        # batch = [batches[i - start] for i in indices]
-        # for (labeled_batch, unlabeled_batch) in zip(self.train_labeled_loader, cycle(batch)):
         for (labeled_batch, unlabeled_batch) in zip(self.train_labeled_loader, cycle(self.unlabeled_loader)):
-            # 有标签数据
+            # Labeled data
             labeled_graph, labeled_features, labeled_labels = labeled_batch
-            # labeled_graph, labeled_features, labeled_labels = labeled_graph.to(self.device), labeled_features.to(self), labeled_labels.to(self.device)
-            # 无标签数据
-            unlabeled_graph, unlabeled_features =unlabeled_batch
-            # unlabeled_graph, unlabeled_features = unlabeled_graph.to(self.device), unlabeled_features.to(self.device)
+            # Unlabeled data
+            unlabeled_graph, unlabeled_features = unlabeled_batch
 
-
-
-            # 对无标签数据应用数据增强
+            # Apply data augmentation to unlabeled data
             student_unlabeled_graph = self.perturb_node_features(unlabeled_graph)
             teacher_unlabeled_graph = unlabeled_graph
-            # 前向传播
-            # 学生模型处理有标签数据
+
+            # Forward propagation
+            # The student model processes labeled data
             labeled_output = self.student_model(labeled_graph, labeled_features)
-            # 学生模型处理无标签数据
+            # The student model processes unlabeled data
             student_output_unlabeled = self.student_model(student_unlabeled_graph, unlabeled_features)
 
             student_output = torch.cat((labeled_output, student_output_unlabeled))
-            # 教师模型处理无标签数据
+
+            # The teacher model processes unlabeled data
             with torch.no_grad():
                 teacher_output_unlabeled = self.teacher_model(teacher_unlabeled_graph, unlabeled_features)
                 teacher_output_labeled = self.teacher_model(labeled_graph, labeled_features)
                 teacher_output = torch.cat((teacher_output_labeled, teacher_output_unlabeled))
 
-            # 计算分类损失
+            # Compute classification loss
             classification_loss = self.criterion(labeled_output, labeled_labels)
-            # 计算一致性损失
+            # Compute consistency loss
             consistency_loss = self.criterion(student_output, teacher_output)
             # consistency_loss = self.criterion(student_output_unlabeled, teacher_output_unlabeled)
-            # 计算总损失
-            consistency_weight = 0.1 # 一致性损失的权重
+
+            # Compute total loss
+            consistency_weight = 0.1  # Weight of the consistency loss
             total_loss = classification_loss + consistency_weight * consistency_loss
 
-            # 反向传播和优化
+            # Backpropagation and optimization
             self.optimizer.zero_grad()
             total_loss.backward()
             self.optimizer.step()
-            # 更新教师模型的参数（通过 EMA）
+
+            # Update the teacher model parameters via EMA
             self.global_step += 1
             self.update_ema_variables()
+
             label_r2 = r2_score(labeled_output, labeled_labels)
+
         return total_loss.item(), label_r2
 
     def test(self, which_model='teacher'):
@@ -595,26 +586,26 @@ class MT_Trainer(object):
             model = self.student_model
         elif which_model == 'val':
             model = self.student_model
-            state_dict = torch.load('net/' + self.save_name + '.pt')
+            state_dict = torch.load(self.save_name + '.pt')
             model.load_state_dict(state_dict)
-        model.eval()  # 设置模型为评估模式
+        model.eval()  # Set the model to evaluation mode
         total_loss = 0.0
         first_batch = True
         total = 0
 
-        with torch.no_grad():  # 测试阶段不需要梯度
+        with torch.no_grad():  # No gradient is needed in the testing phase
             for data in self.test_labeled_loader:
                 graph, features, labels = data
                 graph, features, labels = graph.to(self.device), features.to(self.device), labels.to(self.device)
 
-                # 前向传播
+                # forward propagation
                 outputs = model(graph, features)
                 loss = self.criterion(outputs, labels)
 
-                # 计算总损失
+                # calculate the total loss
                 total_loss += loss.item()
 
-                # 计算预测正确的样本数
+                # Calculate the number of samples with correct predictions
                 _, predicted = torch.max(outputs.data, 1)
                 total += labels.size(0)
 
@@ -626,7 +617,7 @@ class MT_Trainer(object):
                     y = torch.cat((y, labels))
                     out = torch.cat((out, outputs))
 
-        # 计算损失和准确率
+        # Calculate loss and accuracy
         avg_loss = total_loss / len(self.test_labeled_loader)
         R2 = r2_score(out, y)
         best_test = self.best_T if which_model == 'teacher' else self.best_S
@@ -636,15 +627,13 @@ class MT_Trainer(object):
                           mode='test', save=False)
 
             if which_model == 'teacher':
-                torch.save(copy.deepcopy(self.teacher_model.state_dict()), 'net/' + self.save_name + '_teacher.pt')
+                torch.save(copy.deepcopy(self.teacher_model.state_dict()), self.save_name + '_teacher.pt')
                 self.best_T = R2
                 print(f"better teacher:{self.best_T}")
             else:
-                torch.save(copy.deepcopy(self.teacher_model.state_dict()), 'net/' + self.save_name + '_student.pt')
+                torch.save(copy.deepcopy(self.student_model.state_dict()), self.save_name + '_student.pt')
                 self.best_S = R2
                 print(f"better student:{self.best_S}")
-
-
 
         return out, y,  avg_loss, R2
 
@@ -653,64 +642,66 @@ class MT_Trainer(object):
 
 class GANTrainer:
     """
-    用于训练和测试 GraphGANModel 的工具类。
+    Utility class for training and testing the GraphGANModel.
 
     Attributes:
-        model: GraphGANModel 模型。
-        generator_optimizer: 优化生成器的优化器。
+        model: The GraphGANModel.
+        generator_optimizer: The optimizer used for the generator.
     """
     def __init__(self, model, generator_optimizer, features=None):
         """
-        初始化 GANTrainer。
+        Initialize the GANTrainer.
 
         Args:
-            model: GraphGANModel 模型。
-            generator_optimizer: 用于优化生成器的优化器。
-            features: 可选，奖励网络的补充特征。
+            model: The GraphGANModel.
+            generator_optimizer: The optimizer used to optimize the generator.
+            features: Optional supplementary features for the reward network.
         """
         self.model = model
         self.generator_optimizer = generator_optimizer
-        self.features = features  # 从 Excel 加载的补充特征
+        self.features = features  # Supplementary features loaded from Excel
 
     def train_generator(self, epochs=10):
         """
-        训练生成器，只关注生成器与奖励网络的交互。
+        Train the generator, focusing only on the interaction between
+        the generator and the reward network.
 
         Args:
-            epochs: 训练轮数。
+            epochs: Number of training epochs.
         """
         self.model.train()
         for epoch in range(epochs):
             total_loss = 0.0
 
-            # 1. 生成潜在变量
-            embeddings = self.model.sample_z(batch_dim=1)  # 每次生成一个分子的嵌入
+            # 1. Generate latent variables
+            embeddings = self.model.sample_z(batch_dim=1)  # Generate one molecular embedding at a time
 
-            # 2. 通过生成器生成分子图
-            outputs_data, value = self.model(embeddings)  # 生成器输出分子图
+            # 2. Generate molecular graphs through the generator
+            outputs_data, value = self.model(embeddings)  # The generator outputs molecular graphs
 
-            # 3. 模型反馈值确定
+            # 3. Determine the reward from the model feedback value
             reward = value
 
-            # 4. 生成器损失：最大化奖励值
-            generator_loss = -reward  # 负号表示最大化奖励
+            # 4. Generator loss: maximize the reward value
+            generator_loss = -reward  # The negative sign indicates reward maximization
 
-            # 5. 优化生成器
+            # 5. Optimize the generator
             self.generator_optimizer.zero_grad()
             generator_loss.backward()
             self.generator_optimizer.step()
 
             total_loss += generator_loss.item()
 
-            # 打印日志
+            # Print logs
             print(f"Epoch {epoch + 1}/{epochs}: Generator Loss = {total_loss:.4f}")
 
     def test_generator(self, num_samples=10):
         """
-        测试生成器，评估生成的分子有效性和奖励值。
+        Test the generator by evaluating the validity of generated molecules
+        and their reward values.
 
         Args:
-            num_samples: 测试生成的分子样本数。
+            num_samples: Number of generated molecular samples for testing.
         """
         self.model.eval()
         valid_count = 0
@@ -718,17 +709,17 @@ class GANTrainer:
 
         with torch.no_grad():
             for _ in range(num_samples):
-                # 1. 生成潜在变量
+                # 1. Generate latent variables
                 embeddings = self.model.sample_z(batch_dim=1)
 
-                # 2. 生成分子图
+                # 2. Generate molecular graphs
                 outputs_data, value = self.model(embeddings)
 
-                # 3. 评估奖励
+                # 3. Evaluate the reward
                 reward = value
                 rewards.append(reward.item())
 
-                # 4. 判别有效性
+                # 4. Check validity
                 try:
                     smiles = to_smiles(outputs_data)
                     mol = Chem.MolFromSmiles(smiles)
@@ -739,6 +730,7 @@ class GANTrainer:
 
         avg_reward = sum(rewards) / len(rewards) if rewards else 0.0
         print(f"Valid Molecules: {valid_count}/{num_samples}, Average Reward: {avg_reward:.4f}")
+
 
 
 

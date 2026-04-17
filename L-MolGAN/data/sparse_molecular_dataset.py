@@ -1,5 +1,3 @@
-# https://github.com/nicola-decao/MolGAN/blob/master/utils/sparse_molecular_dataset.py
-
 import pickle
 import numpy as np
 

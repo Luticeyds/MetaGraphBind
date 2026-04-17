@@ -3,7 +3,7 @@ import torch
 import copy
 import argparse
 from Dataset.data import PreDataset, FinetuneDataset, ValDataset, Unlabeled_Dataset
-from model.Model import Model, TransModel
+from model.Model import Model, No_GSA_Model
 from trainer.Train import Trainer, MT_Trainer
 
 # Parameter Configuration
@@ -122,7 +122,6 @@ def three_main():
     Train_2.run()
     print('Training time 2:', time.time() - mid_time)
     print('All time:', time.time() - start_time)
-    # 清除GPU缓存
     torch.cuda.empty_cache()
 
 def shap_main():
@@ -138,7 +137,6 @@ def shap_main():
     Train = Trainer(model, dataset, args)
     Train.shap_value()
     print(time.time() - start_time)
-    # 清除GPU缓存
     torch.cuda.empty_cache()
 
 def mt_main():

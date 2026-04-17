@@ -386,9 +386,9 @@ class MLP2(Module):
             for param in self.hidden_layers[i].parameters():
                 param.requires_grad = True
 
-        # 冻结指定的层
-        for idx in range(self.num_layers - 3):# 开几层减几
-            # 冻结指定的隐藏层
+        # Freeze the specified layer
+        for idx in range(self.num_layers - 3):# Reduce as many layers as opened
+            # Freeze the specified hidden layer
             for param in self.hidden_layers[idx].parameters():
                 param.requires_grad = False
 

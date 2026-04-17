@@ -1,0 +1,14 @@
+numpy>=1.21
+pandas>=1.5
+scikit-learn>=1.1
+joblib>=1.2
+openpyxl>=3.0
+matplotlib>=3.5
+tqdm>=4.64
+rdkit
+torch>=1.12
+torch-geometric
+torcheval
+captum
+networkx>=2.8
+scipy>=1.8

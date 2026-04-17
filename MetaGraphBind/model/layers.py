@@ -171,10 +171,10 @@ class GCN1(Module):
     def __init__(self, args, freeze_layers = False):
         super(GCN1, self).__init__()
         self.args = args
-        self.num_features = 9
-        self.num_hidden_GCN = 128
-        self.num_classes = 34
-        self.pooling_ratio = 0.8
+        self.num_features = args.num_features
+        self.num_hidden_GCN = args.num_hidden_GCN
+        self.num_classes = args.num_classes
+        self.pooling_ratio = args.pooling
         # GCN layers
         self.conv1 = GCNConv(self.num_features, self.num_hidden_GCN)
         self.pool1 = GSAPool(in_channels=self.num_hidden_GCN, ratio=self.pooling_ratio)

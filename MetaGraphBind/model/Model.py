@@ -23,13 +23,13 @@ class Model(Module):
         out = self.mlp(x)
         return out
 
-class TransModel(Module):
+class No_GSA_Model(Module):
     def __init__(self, args):
-        super(TransModel, self).__init__()
+        super(No_GSA_Model, self).__init__()
         self.args = args
         self.device = args.device
-        self.gcn1 = GCN1(args)
-        self.mlp = MLP_New(args)
+        self.gcn1 = GCN2(args)
+        self.mlp = MLP2(args)
 
     def freeze_layers(self):
         """

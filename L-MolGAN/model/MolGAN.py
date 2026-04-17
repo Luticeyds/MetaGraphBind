@@ -10,38 +10,38 @@ import pandas as pd
 import joblib
 from .Model import Model
 
-# 定义生成器
+# Define generator
 class GraphGANModel(Module):
     """
-    GraphGANModel实现一个图生成对抗网络(GAN)框架。
-    它包括生成器、判别器和价值网络，用于分子图的生成与优化。
+    The GraphGANModel implements a graph generative adversarial network (GAN) framework.
+    It includes a generator, a discriminator, and a value network for the generation and optimization of molecular graphs.
     """
     def __init__(self, args, vertexes=10, edges=3, nodes=9, embedding_dim=64, decoder_units=[64,128], soft_gumbel_softmax=False,
                  hard_gumbel_softmax=False, value_network_path='net/trans_12.11_new_bro_3.pt'):
         super(GraphGANModel, self).__init__()
         self.args = args
         self.device = args.device
-        self.vertexes = vertexes  # 图中节点的数量
-        self.edges = edges  # 边的类型数量
-        self.nodes = nodes  # 节点的类型数量
-        self.embedding_dim = embedding_dim  # 输入嵌入的维度
-        self.decoder_units = decoder_units  # 生成器的隐藏层单元数
+        self.vertexes = vertexes  # the number of nodes in the graph
+        self.edges = edges  # the number of edge types
+        self.nodes = nodes  # the number of node types
+        self.embedding_dim = embedding_dim  # the dimension of the input embedding
+        self.decoder_units = decoder_units  # the number of hidden units in the generator
         self.dropout = Dropout(p=0.5)
 
-        # 构建生成器
+        # build the generator
         self.generator = self.build_generator().to(self.device)
 
 
-        # 构建价值网络
+        # build the value network
         self.value_network = self.load_value_network(value_network_path).to(self.device)
 
-        # 模式标志
-        self.soft_gumbel_softmax = soft_gumbel_softmax  # 是否使用软Gumbel Softmax
-        self.hard_gumbel_softmax = hard_gumbel_softmax  # 是否使用硬Gumbel Softmax
+        # mode flag
+        self.soft_gumbel_softmax = soft_gumbel_softmax  # whether to use soft Gumbel-Softmax
+        self.hard_gumbel_softmax = hard_gumbel_softmax  # whether to use hard Gumbel-Softmax
 
-        # 反向映射规则
+        # reverse mapping rule
         self.x_map = {
-            'atomic_num':  [6, 7, 8, 15, 16, 17], # 对应 C、N、O、P、S、Cl 的原子序数
+            'atomic_num':  [6, 7, 8, 15, 16, 17], # the atomic numbers corresponding to C, N, O, P, S, and Cl
             'chirality': ['CHI_UNSPECIFIED', 'CHI_TETRAHEDRAL_CW', 'CHI_TETRAHEDRAL_CCW',
                           'CHI_OTHER', 'CHI_TETRAHEDRAL', 'CHI_ALLENE', 'CHI_SQUAREPLANAR',
                           'CHI_TRIGONALBIPYRAMIDAL', 'CHI_OCTAHEDRAL'],
@@ -63,196 +63,197 @@ class GraphGANModel(Module):
 
     def build_generator(self):
         """
-        构建生成器模型，使用全连接网络 (MLP) 生成边和节点的特征。
+        Build the generator model, using a multilayer perceptron (MLP) to generate edge and node features.
         """
         return Sequential(
             Linear(self.embedding_dim, self.decoder_units[0]),
             ReLU(),
             Linear(self.decoder_units[0], self.decoder_units[1]),
             ReLU(),
-            Linear(self.decoder_units[1], self.vertexes * self.nodes + self.edges * self.vertexes * self.vertexes),  # 输出节点和边特征
-            Sigmoid()  # 输出范围映射到[0, 1]
+            Linear(self.decoder_units[1], self.vertexes * self.nodes + self.edges * self.vertexes * self.vertexes),  # Output node and edge features
+            Sigmoid()  # The output range is mapped to [0, 1]
         )
 
     def load_value_network(self, value_network_path):
         """
-        加载已经训练好的 Model 作为 value_network。
+        Load a pretrained model as the value_network.
         Args:
-            value_network_path (str): 已经保存的 value_network 参数文件路径。
+            value_network_path (str): Path to the saved parameter file of the value_network.
         Returns:
-            Model: 加载后的 value_network。
+            Model: The loaded value_network.
         """
-        # 加载训练好的 Model
-        value_network = Model(self.args)  # 初始化 Model
+        # load the trained model
+        value_network = Model(self.args)  # initialize the model
         if value_network_path:
-            value_network.load_state_dict(torch.load(value_network_path))  # 加载权重
+            value_network.load_state_dict(torch.load(value_network_path))  # load the weights
             print(f"Loaded value_network from {value_network_path}")
 
-        # 冻结 value_network 的参数
+        # freeze the parameters of the value_network
         for param in value_network.parameters():
             param.requires_grad = False
         return value_network
 
     def reverse_x_map(self, output, feature_map):
         """
-        将生成器输出的 [0, 1] 特征映射回离散特征。
+        Map the [0, 1] features output by the generator back to discrete features.
 
         Args:
-            output (torch.Tensor): 生成器输出的特征，形状为 [batch_size, num_nodes, num_features]。
-            feature_map (dict): 特征映射字典，键为特征名称，值为对应的离散值列表。
+            output (torch.Tensor): Features output by the generator, with shape [batch_size, num_nodes, num_features].
+            feature_map (dict): A feature mapping dictionary, where the keys are feature names and the values are the corresponding lists of discrete values.
 
         Returns:
-            torch.Tensor: 映射后的特征张量，形状为 [batch_size, num_nodes, num_features]。
+            torch.Tensor: The mapped feature tensor, with shape [batch_size, num_nodes, num_features].
         """
+
         batch_size, num_nodes, num_features = output.shape
-        mapped_features = []  # 存储映射后的特征
+        mapped_features = []  # store the mapped features
 
-        # 遍历每个节点
+        # iterate over each node
         for node_idx in range(num_nodes):
-            node_output = output[:, node_idx, :]  # 取出第 node_idx 个节点的所有特征，形状为 [batch_size, num_features]
+            node_output = output[:, node_idx, :]  # Extract all features of the node_idx-th node, with shape [batch_size, num_features].
 
-            node_mapped_features = []  # 当前节点的映射特征
+            node_mapped_features = []  # the mapped features of the current node
 
-            # 遍历每个特征
+            # iterate over each feature
             for feature_idx, (feature_name, values) in enumerate(feature_map.items()):
-                # 如果特征值是数值型（int 或 float）
+                # if the feature value is numeric (int or float)
                 if isinstance(values[0], (int, float)):
-                    # 将离散值列表转换为张量
+                    # convert the list of discrete values into a tensor
                     values_tensor = torch.tensor(values, dtype=torch.float).to(self.device)
-                    # 生成器输出是 [0, 1] 范围的连续值
-                    # 映射到离散的数值集合中
-                    scaled_values = node_output[:, feature_idx] * (len(values) - 1)  # 扩展到 [0, len(values)-1]
-                    scaled_values = torch.round(scaled_values).long()  # 四舍五入到最近的整数
-                    scaled_values = scaled_values.clamp(min=0, max=len(values) - 1)  # 确保值在合法范围内
-                    mapped_values = values_tensor[scaled_values]  # 使用 scaled_values 作为索引
+                    # The generator outputs continuous values in the range [0, 1].
+                    # map to a set of discrete values
+                    scaled_values = node_output[:, feature_idx] * (len(values) - 1)  # scale to the range [0, len(values) - 1]
+                    scaled_values = torch.round(scaled_values).long()  # round to the nearest integer
+                    scaled_values = scaled_values.clamp(min=0, max=len(values) - 1)  # ensure the value is within the valid range
+                    mapped_values = values_tensor[scaled_values]  # use scaled_values as indices
                     node_mapped_features.append(mapped_values)
 
-                # 如果特征值是类别型（字符串），进行类别映射
+                # If the feature value is categorical (string), perform category mapping.
                 else:
-                    value_to_index = {v: idx for idx, v in enumerate(values)}  # 将字符串类别映射为整数索引
+                    value_to_index = {v: idx for idx, v in enumerate(values)}  # map string categories to integer indices
                     num_classes = len(values)
 
-                    # 生成器输出 * 类别数，得到范围 [0, num_classes)
+                    # Multiply the generator output by the number of classes to obtain a range of [0, num_classes).
                     scaled_values = (node_output[:, feature_idx] * num_classes)
-                    scaled_values = torch.round(scaled_values).long()  # 四舍五入，得到离散的类别索引
-                    scaled_values = scaled_values.clamp(max=num_classes - 1)  # 确保不超过类别的最大值
+                    scaled_values = torch.round(scaled_values).long()  # Round to obtain discrete class indices.
+                    scaled_values = scaled_values.clamp(max=num_classes - 1)  # ensure it does not exceed the maximum class value
 
                     node_mapped_features.append(scaled_values)
 
-            # 将当前节点的映射特征拼接在一起
+            # concatenate the mapped features of the current node together
             node_mapped_features = torch.stack(node_mapped_features, dim=1)  # [batch_size, num_features]
             mapped_features.append(node_mapped_features)
 
-        # 将所有节点的映射特征拼接在一起
+        # concatenate the mapped features of all nodes together
         mapped_features = torch.stack(mapped_features, dim=0)  # [batch_size, num_nodes, num_features]
 
         return mapped_features
 
     def reverse_e_map(self, edges_logits, e_map):
         """
-        将生成器输出的边特征 [0, 1] 映射回离散特征。
+        Map the [0, 1] edge features output by the generator back to discrete features.
 
         Args:
-            edges_logits (torch.Tensor): 生成器输出的边特征，形状为 [batch_size, self.edges, self.vertexes, self.vertexes]。
-            e_map (dict): 边特征映射字典，键为特征名称，值为对应的离散值列表。
+            edges_logits (torch.Tensor): Edge features output by the generator, with shape [batch_size, self.edges, self.vertexes, self.vertexes].
+            e_map (dict): An edge feature mapping dictionary, where the keys are feature names and the values are the corresponding lists of discrete values.
 
         Returns:
-            torch.Tensor: 映射后的边特征张量，形状为 [batch_size, self.edges, self.vertexes, self.vertexes]。
+            torch.Tensor: The mapped edge feature tensor, with shape [batch_size, self.edges, self.vertexes, self.vertexes].
         """
         batch_size, num_edge_types, num_nodes, _ = edges_logits.shape
 
-        # 初始化映射后的边特征张量
+        # initialize the mapped edge feature tensor
         edges_mapped = torch.zeros_like(edges_logits, dtype=torch.float).to(self.device)
 
-        # 遍历每种边类型
+        # iterate over each edge type
         for edge_type_idx in range(num_edge_types):
-            # 取出当前边类型的特征
+            # extract the features of the current edge type
             edge_type_logits = edges_logits[:, edge_type_idx, :, :]  # [batch_size, self.vertexes, self.vertexes]
 
-            # 遍历每条边 (i, j)
+            # iterate over each edge (i, j)
             for i in range(num_nodes):
                 for j in range(num_nodes):
-                    if i != j:  # 忽略自环边
-                        # 取出当前边的特征值
+                    if i != j:  # ignore self-loop edges
+                        # extract the feature value of the current edge
                         edge_logits = edge_type_logits[:, i, j]  # [batch_size]
 
-                        # 遍历每个特征
+                        # iterate over each feature
                         for feature_idx, (feature_name, values) in enumerate(e_map.items()):
-                            # 如果特征值是数值型（int 或 float）
+                            # if the feature value is numeric (int or float)
                             if isinstance(values[0], (int, float)):
-                                # 将离散值列表转换为张量
+                                # convert the list of discrete values into a tensor
                                 values_tensor = torch.tensor(values, dtype=torch.float).to(self.device)
-                                # 生成器输出是 [0, 1] 范围的连续值
-                                # 映射到离散的数值集合中
-                                scaled_values = edge_logits * (len(values) - 1)  # 扩展到 [0, len(values)-1]
-                                scaled_values = torch.round(scaled_values).long()  # 四舍五入到最近的整数
-                                scaled_values = scaled_values.clamp(min=0, max=len(values) - 1)  # 确保值在合法范围内
-                                mapped_values = values_tensor[scaled_values]  # 使用 scaled_values 作为索引
+                                # The output of the generator is a continuous value within the range of [0, 1]
+                                # Map to a discrete set of numerical values
+                                scaled_values = edge_logits * (len(values) - 1)  # extended to [0, len(values)-1]
+                                scaled_values = torch.round(scaled_values).long()  # Round to the nearest integer
+                                scaled_values = scaled_values.clamp(min=0, max=len(values) - 1)  # Ensure that the value is within the legal range
+                                mapped_values = values_tensor[scaled_values]  # Use scaled_values as the index
                                 edges_mapped[:, edge_type_idx, i, j] = mapped_values
 
-                            # 如果特征值是类别型（字符串或其他类型），进行类别映射
+                            # If the feature value is of a categorical type (string or other types), perform categorical mapping
                             else:
-                                value_to_index = {v: idx for idx, v in enumerate(values)}  # 将类别映射为整数索引
+                                value_to_index = {v: idx for idx, v in enumerate(values)}  # Map categories to integer indices
                                 num_classes = len(values)
 
-                                # 生成器输出 * 类别数，得到范围 [0, num_classes)
+                                # The generator outputs * the number of classes, resulting in a range of [0, num_classes)
                                 scaled_values = (edge_logits * num_classes)
-                                scaled_values = torch.round(scaled_values).long()  # 四舍五入，得到离散的类别索引
-                                scaled_values = scaled_values.clamp(max=num_classes - 1)  # 确保不超过类别的最大值
+                                scaled_values = torch.round(scaled_values).long()  # Rounding to the nearest whole number, we obtain the discrete category index
+                                scaled_values = scaled_values.clamp(max=num_classes - 1)  # Ensure that the maximum value for the category is not exceeded
 
-                                # 直接存储类别索引，而不是字符串
+                                # Store category indexes directly, rather than strings
                                 edges_mapped[:, edge_type_idx, i, j] = scaled_values
 
         return edges_mapped
 
     def forward(self, embeddings, temperature=1.0):
         """
-        前向传播：生成器生成图，判别器和价值网络对图进行判别和奖励评估。
+        Forward propagation: The generator generates a graph, and the discriminator and value network perform discrimination and reward evaluation on the graph.
         """
-        # 生成器生成边和节点的特征
+        # The generator produces features for edges and nodes
         logits = self.generator(embeddings)
-        nodes_logits = logits[:, :self.vertexes * self.nodes].view(-1, self.vertexes, self.nodes)  # 节点的特征
-        edges_logits = logits[:, self.vertexes * self.nodes:].view(-1, self.edges, self.vertexes, self.vertexes)  # 边的特征
+        nodes_logits = logits[:, :self.vertexes * self.nodes].view(-1, self.vertexes, self.nodes)  # Node features
+        edges_logits = logits[:, self.vertexes * self.nodes:].view(-1, self.edges, self.vertexes, self.vertexes)  # Edge features
 
-        # 离散化特征映射
-        nodes_mapped = self.reverse_x_map(nodes_logits, self.x_map)  # 节点特征映射
-        edges_mapped = self.reverse_e_map(edges_logits, self.e_map)  # 边特征映射
+        # Discrete feature mapping
+        nodes_mapped = self.reverse_x_map(nodes_logits, self.x_map)  # Node feature mapping
+        edges_mapped = self.reverse_e_map(edges_logits, self.e_map)  # edge feature mapping
 
-        # 提取节点特征：节点数量为 self.vertexes，特征维度为 -1（例如 self.nodes）
+        # Extract node features: The number of nodes is self.vertexes, and the feature dimension is -1 (e.g., self.nodes)
         node_features = nodes_mapped.view(self.vertexes, -1).to(self.device)  # [num_nodes, node_features]
 
-        # 初始化 current_bonds：记录每个节点当前已有的键数量
-        current_bonds = [0] * self.vertexes  # 初始时所有节点的键数为 0
+        # Initialize current_bonds: Record the current number of keys owned by each node
+        current_bonds = [0] * self.vertexes  # Initially, the key count of all nodes is 0
 
-        # 修正 edge_attr 的形状
+        # Correct the shape of edge_attr
         edge_attr = edges_mapped.view(-1, self.edges, self.vertexes * self.vertexes).permute(0, 2,
                                                                                              1)  # [batch_size, num_edges, edge_features]
         edge_attr = edge_attr.view(-1, edge_attr.size(-1))  # [num_edges, edge_features]
 
-        # 转换为 torch_geometric.data.Data 格式
+        # Convert to torch_geometric.data.Data format
         edge_index = []
-        self.valid_edge_indices = []  # 记录非自环边的索引
+        self.valid_edge_indices = []  # Record the index of non-self-loop edges
 
-        # 遍历所有节点对，生成边索引
+        # Traverse all node pairs and generate edge indices
         for i in range(self.vertexes):
             for j in range(self.vertexes):
-                # 忽略自环边，并检查是否满足化学连接规则
+                # Ignore self-loop edges and check whether the chemical connectivity rules are satisfied
                 if i != j and self.valid_chemical_connection(i, j, node_features, current_bonds, edge_attr):
-                    edge_index.append([i, j])  # 添加边
-                    self.valid_edge_indices.append(i * self.vertexes + j)  # 记录对应的索引
+                    edge_index.append([i, j])  # Add edges
+                    self.valid_edge_indices.append(i * self.vertexes + j)  # Record the corresponding index
 
-                    # 更新 current_bonds（每次添加边时，更新节点的键数量）
+                    # Update current_bonds (update the number of keys for the node each time an edge is added)
                     current_bonds[i] += 1
                     current_bonds[j] += 1
 
 
-        # 构造 edge_index 张量
+        # Construct the edge_index tensor
         edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous().to(self.device)  # [2, num_edges]
 
-        # 过滤 edge_attr，仅保留 valid_edge_indices 对应的特征
-        edge_attr = edge_attr[self.valid_edge_indices, :]  # 根据 valid_edge_indices 筛选特征
+        # Filter edge_attr and retain only the features corresponding to valid_edge_indices
+        edge_attr = edge_attr[self.valid_edge_indices, :]  # Filter features based on valid_edge_indices
 
-        # 构建 PyTorch Geometric 的 Data 对象
+        # Constructing the Data object of PyTorch Geometric
         outputs_data = Data(
             x=node_features,  # [num_nodes, node_features]
             edge_index=edge_index,  # [2, num_edges]
@@ -260,7 +261,7 @@ class GraphGANModel(Module):
         ).to(self.device)
 
 
-        # 价值网络：评估生成图的奖励值
+        # Value network: Evaluating the reward value of generated graphs
         value = self.value_forward(outputs_data, self.features)
 
         return outputs_data, value
@@ -268,7 +269,7 @@ class GraphGANModel(Module):
 
     def value_forward(self, graph, features):
         """
-        价值网络的前向传播。
+        Forward propagation of the value network.
         """
         print(features.shape)
         try:
@@ -300,73 +301,73 @@ class GraphGANModel(Module):
 
     def sample_z(self, batch_dim):
         """
-        生成潜在空间的随机噪声样本。
+        Generate random noise samples in the latent space.
         """
         return torch.randn((batch_dim, self.embedding_dim)).to(self.device)
 
     def valid_chemical_connection(self, node_i, node_j, node_features, current_bonds, edge_attr=None):
         """
-        判断节点 i 和 j 之间是否可以建立化学键。
+        Determine whether a chemical bond can be formed between nodes i and j.
 
-        参数：
-        - node_i, node_j: 节点索引
-        - node_features: 节点特征矩阵，存储原子类型等信息
-        - current_bonds: 当前每个原子的键数列表
-        - edge_attr: 当前边属性（键类型），可选
+        parameter
+        - node_i, node_j: node indices
+        - node_features: Node feature matrix, storing information such as atom types
+        - current_bonds: A list of the current bond counts for each atom
+        - edge_attr: current edge attribute (key type), optional
 
-        返回：
-        - True 如果两个节点可以形成化学键；否则 False
+        Return:
+        - True if two nodes can form a chemical bond; otherwise False
         """
-        # 定义化学价和有效原子对
+        # Define chemical valence and effective atomic pair
         atomic_valence = {
-            6: 4,  # 碳（C）：最大化学价为 4
-            7: 3,  # 氮（N）：最大化学价为 3
-            8: 2,  # 氧（O）：最大化学价为 2
-            15: 5,  # 磷（P）：最大化学价为 5
-            16: 6,  # 硫（S）：通常 2，特殊情况下为 4 或 6
-            17: 1  # 氯（Cl）：最大化学价为 1
+            6: 4,  # Carbon (C): The maximum chemical valence is 4
+            7: 3,  # Nitrogen (N): The maximum chemical valence is 3
+            8: 2,  # Oxygen (O): The maximum chemical valence is 2
+            15: 5,  # Phosphorus (P): maximum chemical valence is 5
+            16: 6,  # Sulfur (S): usually 2, or 4 or 6 in special cases
+            17: 1  # Chlorine (Cl): maximum chemical valence is 1
         }
         valid_pairs = {
-            (6, 6): [0., 1., 2., 3.],  # C-C 键
-            (6, 8): [0., 1.],  # C-O 键
-            (6, 7): [0., 1., 3.],  # C-N 键
-            (6, 16): [0., 1.],  # C-S 键
-            (6, 17): [0.],  # C-Cl 键
-            (7, 8): [0.],  # N-O 键
-            (7, 16): [0.],  # N-S 键
-            (15, 8): [0., 1.],  # P-O 键
+            (6, 6): [0., 1., 2., 3.],  # C-C
+            (6, 8): [0., 1.],  # C-O
+            (6, 7): [0., 1., 3.],  # C-N
+            (6, 16): [0., 1.],  # C-S
+            (6, 17): [0.],  # C-Cl
+            (7, 8): [0.],  # N-O
+            (7, 16): [0.],  # N-S
+            (15, 8): [0., 1.],  # P-O
         }
-        bond_valence = {0.: 1, 1.: 2, 2.: 3, 3.: 1.5}  # 键类型对化学价的影响
+        bond_valence = {0.: 1, 1.: 2, 2.: 3, 3.: 1.5}  # The influence of bond type on chemical valence
 
-        # 获取原子类型
+        # Get atomic type
         atom_i = int(self.get_atom_type(node_i, node_features))
         atom_j = int(self.get_atom_type(node_j, node_features))
 
-        # 计算线性索引
+        # Calculate linear index
         edge_idx = node_i * self.vertexes + node_j
 
-        # 检查是否在 valid_edge_indices 中
+        # Check if it is in valid_edge_indices
         if edge_idx not in self.valid_edge_indices:
-            return False  # 边不存在
-        edge_idx = self.valid_edge_indices.index(edge_idx)  # 找到在 edge_attr 中的位置
+            return False  # Edge does not exist
+        edge_idx = self.valid_edge_indices.index(edge_idx)  # Find the position in edge_attr
 
-        # 获取边的属性
+        # Get the attributes of the edge
         bond_type = edge_attr[edge_idx]
         print(bond_type)
 
 
 
-        # 默认键类型为单键
+        # The default key type is single key
         bond_increment = bond_valence.get(bond_type, 1)  # 默认为单键
         print(bond_type, bond_increment)
 
-        # 判断化学价是否超出
+        # Determine whether the chemical valence exceeds the limit
         if current_bonds[node_i] + bond_increment > atomic_valence[atom_i]:
             return False
         if current_bonds[node_j] + bond_increment > atomic_valence[atom_j]:
             return False
 
-        # 检查是否为有效的键类型
+        # Check whether it is a valid key type
         if (atom_i, atom_j) in valid_pairs:
             valid_bond_types = valid_pairs[(atom_i, atom_j)]
         elif (atom_j, atom_i) in valid_pairs:
@@ -377,22 +378,22 @@ class GraphGANModel(Module):
         if bond_type is not None and bond_type not in valid_bond_types:
             return False
 
-        # 如果满足所有规则，允许建立化学键
+        # If all rules are satisfied, chemical bonding is allowed to form
         return True
 
     def distance_constraint(self, node_i, node_j, distance_matrix):
         """
-        距离约束函数：根据节点索引和距离矩阵，判断是否满足距离条件。
+        Distance constraint function: Determine whether the distance condition is met based on the node index and distance matrix.
         """
         dist = distance_matrix[node_i, node_j]
-        return 0.5 <= dist <= 2.0  # 仅允许距离在 0.5 Å ~ 2.0 Å 之间
+        return 0.5 <= dist <= 2.0  # Only distances between 0.5 Å and 2.0 Å are allowed
 
     def get_atom_type(self, node_index, node_features):
         """
-        根据节点特征获取原子类型。
-        假设 node_features 是 [num_nodes, feature_dim]，某列表示原子类型编码。
+        Obtain the atomic type based on the node features.
+        Suppose `node_features` is of shape `[num_nodes, feature_dim]`, where a certain column represents the atomic type encoding.
         """
-        atom_type = node_features[node_index, 0]  # 假设第 0 列存储原子类型
+        atom_type = node_features[node_index, 0]  # Suppose the 0th column stores the atomic type
         return atom_type
 
     def from_excel(self, excel_file):
@@ -404,16 +405,3 @@ class GraphGANModel(Module):
 
         # Standardize supplementary data
         self.features = torch.tensor(scaler.fit_transform(data.iloc[:, 10:38].values), dtype=torch.float).to(self.device)
-
-
-
-
-
-
-
-
-
-
-
-
-

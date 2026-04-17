@@ -20,10 +20,12 @@ class PreDataset(Dataset):
         """
         self.graph_data = None
         self.smiles_list = None
+        self.raw_supplement_data = None
         self.supplement_data = None
         self.labels = None
         self.seed = args.seed
-        self.scaler = joblib.load('scaler.joblib')
+        self.scaler = StandardScaler()
+        self.scaler_path = args.pretrain_scaler_path
         self.device = args.device
         self.train_ratio = args.train_ratio
         self.batch_size = args.batch_size
@@ -80,6 +82,7 @@ class PreDataset(Dataset):
         """
         Split the dataset into training, testing, and validation sets.
         """
+        dataset_size = len(self)
         self.train_size = int(self.train_ratio * len(self))
         self.test_size = (len(self) - self.train_size)//2
         self.val_size = len(self) - self.train_size - self.test_size
@@ -91,8 +94,22 @@ class PreDataset(Dataset):
             batch_size_train = self.batch_size
             batch_size_test = self.batch_size
             batch_size_val = self.batch_size
-        train_dataset, temp_dataset = random_split(self, [self.train_size, self.test_size + self.val_size])
-        test_dataset, val_dataset = random_split(temp_dataset, [self.test_size, self.val_size])
+        generator = torch.Generator().manual_seed(self.seed)
+        perm = torch.randperm(dataset_size, generator=generator).tolist()
+
+        self.train_indices = perm[:self.train_size]
+        self.test_indices = perm[self.train_size:self.train_size + self.test_size]
+        self.val_indices = perm[self.train_size + self.test_size:]
+
+        train_features = self.raw_supplement_data[self.train_indices]
+        self.scaler.fit(train_features)
+        joblib.dump(self.scaler, self.scaler_path)
+        transformed_features = self.scaler.transform(self.raw_supplement_data)
+        self.supplement_data = torch.tensor(transformed_features, dtype=torch.float)
+
+        train_dataset = Subset(self, self.train_indices)
+        test_dataset = Subset(self, self.test_indices)
+        val_dataset = Subset(self, self.val_indices)
         self.train_loader = DataLoader(train_dataset, batch_size=batch_size_train, shuffle=True)
         self.test_loader = DataLoader(test_dataset, batch_size=batch_size_test, shuffle=False)
         self.val_loader = DataLoader(val_dataset, batch_size=batch_size_val, shuffle=False)
@@ -112,10 +129,9 @@ class PreDataset(Dataset):
         self.smiles_list = data[['SMILES']].values.tolist()
         self.graph_data = self.smiles_to_graph()
 
-        # Standardize supplementary data
-        self.supplement_data = torch.tensor(self.scaler.fit_transform(data.iloc[:, 10:38].values), dtype=torch.float)
-        # Standardize log_k values
-        # log_k = self.scaler.fit_transform(data['Value'].values.reshape(-1, 1))
+        # supplementary data
+        self.raw_supplement_data = data.iloc[:, 10:38].values.astype(float)
+
         log_k = data['Value'].values.reshape(-1, 1)
         self.labels = torch.tensor(log_k, dtype=torch.float)
 
@@ -143,7 +159,7 @@ class PreDataset(Dataset):
         return data_list
 
 class FinetuneDataset(Dataset):
-    def __init__(self, args):
+    def __init__(self, args, first=True):
         """
         Initialize the JessDataset class.
 
@@ -152,10 +168,15 @@ class FinetuneDataset(Dataset):
         """
         self.graph_data = None
         self.smiles_list = None
+        self.raw_supplement_data = None
         self.supplement_data = None
         self.labels = None
         self.seed = args.seed
-        self.scaler = joblib.load('scaler.joblib')
+        self.scaler = StandardScaler()
+        if first:
+            self.scaler_path = args.transfer1_scaler_path
+        else:
+            self.scaler_path = args.transfer2_scaler_path
         self.device = args.device
         self.num_copies = args.num_copies
         self.train_ratio = 0.9
@@ -215,8 +236,9 @@ class FinetuneDataset(Dataset):
         """
         Split the dataset into training, testing, and validation sets.
         """
+        dataset_size = len(self)
         self.train_size = int(self.train_ratio * len(self))
-        self.test_size = (len(self) - self.train_size)//2
+        self.test_size = (len(self) - self.train_size) // 2
         self.val_size = len(self) - self.train_size - self.test_size
         if self.batch_size == 0:
             batch_size_train = self.train_size
@@ -226,26 +248,26 @@ class FinetuneDataset(Dataset):
             batch_size_train = self.batch_size
             batch_size_test = self.batch_size
             batch_size_val = self.batch_size
-        train_dataset, temp_dataset = random_split(self, [self.train_size, self.test_size + self.val_size])
+        generator = torch.Generator().manual_seed(self.seed)
+        perm = torch.randperm(dataset_size, generator=generator).tolist()
+
+        self.train_indices = perm[:self.train_size]
+        self.test_indices = perm[self.train_size:self.train_size + self.test_size]
+        self.val_indices = perm[self.train_size + self.test_size:]
+
+        train_features = self.raw_supplement_data[self.train_indices]
+        self.scaler.fit(train_features)
+        joblib.dump(self.scaler, self.scaler_path)
+        transformed_features = self.scaler.transform(self.raw_supplement_data)
+        self.supplement_data = torch.tensor(transformed_features, dtype=torch.float)
+
+        train_dataset = Subset(self, self.train_indices)
         augmented_train_dataset = self.augment_dataset(train_dataset)
-        test_dataset, val_dataset = random_split(temp_dataset, [self.test_size, self.val_size])
-        self.train_loader = DataLoader(
-            augmented_train_dataset,
-            batch_size=batch_size_train,
-            shuffle=True
-        )
-
-        self.test_loader = DataLoader(
-            test_dataset,
-            batch_size=batch_size_test,
-            shuffle=False
-        )
-
-        self.val_loader = DataLoader(
-            val_dataset,
-            batch_size=batch_size_val,
-            shuffle=False
-        )
+        test_dataset = Subset(self, self.test_indices)
+        val_dataset = Subset(self, self.val_indices)
+        self.train_loader = DataLoader(augmented_train_dataset, batch_size=batch_size_train, shuffle=True)
+        self.test_loader = DataLoader(test_dataset, batch_size=batch_size_test, shuffle=False)
+        self.val_loader = DataLoader(val_dataset, batch_size=batch_size_val, shuffle=False)
 
 
 
@@ -263,10 +285,8 @@ class FinetuneDataset(Dataset):
         self.smiles_list = data[['SMILES']].values.tolist()
         self.graph_data = self.smiles_to_graph()
 
-        # Standardize supplementary data
-        self.supplement_data = torch.tensor(self.scaler.fit_transform(data.iloc[:, 10:38].values), dtype=torch.float)
-        # Standardize log_k values
-        # log_k = self.scaler.fit_transform(data['Value'].values.reshape(-1, 1))
+        # supplementary data
+        self.raw_supplement_data = data.iloc[:, 10:38].values.astype(float)
         log_k = data['Value'].values.reshape(-1, 1)
         self.labels = torch.tensor(log_k, dtype=torch.float)
 
@@ -295,12 +315,15 @@ class FinetuneDataset(Dataset):
 
     def augment_dataset(self, dataset):
         """
-        对整个训练数据集进行增广。
+        Augment the entire training dataset.
+
         Args:
-            dataset (Dataset): 原始训练数据集。
-            num_copies (int): 每条数据生成的增广版本数量。
+            dataset (Dataset): The original training dataset.
+            num_copies (int): The number of augmented versions generated for each sample.
+
         Returns:
-            List[Tuple]: 增广后的训练数据列表 (graph_features, supplement_features, label)。
+            List[Tuple]: The augmented training data list
+            (graph_features, supplement_features, label).
         """
         augmented_data = []
         for graph_features, supplement_features, label in dataset:
@@ -317,19 +340,19 @@ class FinetuneDataset(Dataset):
 
     def augment_data(self, graph_features, supplement_features, label):
         """
-        增广图特征和补充特征。
+        Augmented graph features and supplementary features.
         Args:
-            graph_features: 分子图特征 (torch_geometric.data.Data 或其他图数据格式)。
-            supplement_features: 补充特征 (torch.Tensor 或 numpy 数组)。
-            label: 标签。
+            graph_features: Molecular graph features (torch_geometric.data.Data or other graph data formats).
+            supplement_features: Supplementary features (torch.Tensor or numpy array).
+            label: label.
         Returns:
-            增广后的 graph_features, supplement_features, label。
+            The augmented graph_features, supplement_features, and label.
         """
-        # 增广图特征
+        # augmented graph features
         if graph_features is not None:
             graph_features = self.augment_graph(graph_features)
 
-        # 增广补充特征
+        # augmentation and supplementary features
         if supplement_features is not None:
             supplement_features = self.augment_supplement_features(supplement_features)
 
@@ -337,57 +360,41 @@ class FinetuneDataset(Dataset):
 
     def augment_graph(self, graph):
         """
-        对分子图进行增广，包括节点特征、边特征和拓扑结构。
+        Augmenting the molecular graph involves enhancing its node features, edge features, and topological structure.
         Args:
-            graph (torch_geometric.data.Data): 输入图数据，包含 x, edge_index, edge_attr 等。
+            graph (torch_geometric.data.Data): Input graph data, including x, edge_index, edge_attr, etc.
         Returns:
-            torch_geometric.data.Data: 增广后的图数据。
+            torch_geometric.data.Data: Augmented graph data.
         """
-        # 增广节点特征
+        # Augmenting node features
         if random.random() > 0.5:
-            # 添加高斯噪声
+            # Add Gaussian noise
             noise = torch.randn_like(graph.x) * 0.01
             graph.x = graph.x + noise
-            # # 随机掩盖部分特征
-            # mask = torch.rand(graph.x.size()) > 0.8
-            # graph.x = graph.x * mask.float()
 
-        # 增广边特征
+        # augmented edge features
         if random.random() > 0.5 and 'edge_attr' in graph:
-            # 添加高斯噪声
+            # Add Gaussian noise
             graph.edge_attr = graph.edge_attr.float()
             noise = torch.randn_like(graph.edge_attr) * 0.01
             graph.edge_attr = graph.edge_attr + noise
-
-        # # 增广拓扑结构
-        # if random.random() > 0.5:
-        #     # 随机删除边
-        #     num_edges = graph.edge_index.size(1)
-        #     keep_edges = torch.rand(num_edges) > 0.1  # 保留90%的边
-        #     edge_index = graph.edge_index[:, keep_edges]
-        #     edge_attr = graph.edge_attr[keep_edges] if 'edge_attr' in graph else None
-        #     # 更新图
-        #     graph.edge_index = edge_index
-        #     if edge_attr is not None:
-        #         graph.edge_attr = edge_attr
 
         return graph
 
     def augment_supplement_features(self, features):
         """
-        增广补充特征，例如添加噪声或比例缩放。
+        Augmenting supplementary features, such as adding noise or scaling.
         Args:
-            features: 补充特征 (torch.Tensor)。
+            features: Supplementary features (torch.Tensor).
         Returns:
-            增广后的特征。
+            Augmented features.
         """
-        # 添加高斯噪声
+        # Add Gaussian noise
         noise = torch.randn_like(features) * 0.01
         features = features + noise
 
 
         return features
-
 
 
 class ValDataset(Dataset):
@@ -404,7 +411,7 @@ class ValDataset(Dataset):
         self.labels = None
         self.number = None
         self.seed = args.seed
-        self.scaler = joblib.load('scaler.joblib')
+        self.scaler = joblib.load(args.transfer2_scaler_path)
         self.device = args.device
         self.train_ratio = 0.8
         self.batch_size = args.batch_size
@@ -485,14 +492,13 @@ class ValDataset(Dataset):
         self.graph_data= self.smiles_to_graph()
 
         # Standardize supplementary data
-        self.supplement_data = torch.tensor(self.scaler.fit_transform(data.iloc[:, 10:38].values), dtype=torch.float)
-        # Standardize log_k values
-        # log_k = self.scaler.fit_transform(data['Value'].values.reshape(-1, 1))
+        self.supplement_data = torch.tensor(self.scaler.transform(data.iloc[:, 10:38].values), dtype=torch.float)
         log_k = data['Value'].values.reshape(-1, 1)
         self.labels = torch.tensor(log_k, dtype=torch.float)
 
+
 class Unlabeled_Dataset(Dataset):
-    def __init__(self, args):
+    def __init__(self, args, first=True):
         """
         Initialize the JessDataset class.
 
@@ -505,10 +511,14 @@ class Unlabeled_Dataset(Dataset):
         self.supplement_data = None
         self.number = None
         self.seed = args.seed
-        self.scaler = joblib.load('scaler.joblib')
+        if first:
+            self.scaler = joblib.load(args.transfer1_scaler_path)
+        else:
+            self.scaler = joblib.load(args.transfer2_scaler_path)
+
         self.device = args.device
         self.batch_size = args.batch_size
-        self.excel_file = args.unlabeled_excel_file
+        self.excel_file = args.generated_excel
         self.data_from_excel()
         self.train_size = 0
         self.test_size = 0
@@ -578,4 +588,4 @@ class Unlabeled_Dataset(Dataset):
         self.graph_data= self.smiles_to_graph()
 
         # Standardize supplementary data
-        self.supplement_data = torch.tensor(self.scaler.fit_transform(data.iloc[:, 10:38].values), dtype=torch.float)
+        self.supplement_data = torch.tensor(self.scaler.transform(data.iloc[:, 10:38].values), dtype=torch.float)

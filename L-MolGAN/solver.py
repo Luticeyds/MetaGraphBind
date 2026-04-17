@@ -55,7 +55,7 @@ class Solver(object):
 
         # Miscellaneous.
         self.use_tensorboard = config.use_tensorboard
-        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device(config.device)
 
         # Directories.
         self.log_dir = config.log_dir
@@ -73,6 +73,12 @@ class Solver(object):
         self.build_model()
         if self.use_tensorboard:
             self.build_tensorboard()
+
+        # log K1 indicator model
+        self.model_file = config.model_file
+        self.feature_df = config.feature_df
+        self.scaler_file = config.scaler_file
+        self.core_mols_file = config.core_mols_file
 
     def build_model(self):
         """Create a generator and a discriminator."""
@@ -210,7 +216,7 @@ class Solver(object):
             elif m == 'validity':
                 rr *= MolecularMetrics.valid_scores(mols)
             elif m == 'logk':
-                max_logk, mean_logk = MolecularMetrics.delta_logk_value(mols)
+                max_logk, mean_logk = MolecularMetrics.delta_logk_value(mols, self.model_file, self.core_mols_file, self.feature_df, self.scaler_file)
                 rr *= [max_logk]
                 rr *= [mean_logk]
             else:
@@ -337,7 +343,7 @@ class Solver(object):
                 log = "Elapsed [{}], Iteration [{}/{}]".format(et, i+1, self.num_iters)
 
                 # Log update
-                m0, m1 = all_scores(mols, self.data, i+1, norm=True)     # 'mols' is output of Fake Reward
+                m0, m1 = all_scores(mols, self.data, i+1,  self.model_file, self.core_mols_file, self.feature_df, self.scaler_file, norm=True)     # 'mols' is output of Fake Reward
                 m0 = {k: np.array(v)[np.nonzero(v)].mean() for k, v in m0.items()}
                 m0.update(m1)
                 loss.update(m0)
@@ -389,7 +395,7 @@ class Solver(object):
                     for e_, n_ in zip(edges_hard, nodes_hard)]
 
             # Log update
-            m0, m1 = all_scores(mols, self.data, i+1, norm=True)     # 'mols' is output of Fake Reward
+            m0, m1 = all_scores(mols, self.data, i+1, self.model_file, self.core_mols_file, self.feature_df, self.scaler_file, norm=True)     # 'mols' is output of Fake Reward
             m0 = {k: np.array(v)[np.nonzero(v)].mean() for k, v in m0.items()}
             m0.update(m1)
             log = "Test"
