@@ -34,14 +34,14 @@ def build_parser():
     parser.add_argument('--num_copies', type=int, default=20, help="Number of augmented copies for each training sample in finetuning")
 
     # ========= training =========
-    parser.add_argument('--epochs', type=int, default=10, help='Epochs for pretraining')
+    parser.add_argument('--epochs', type=int, default=1000, help='Epochs for pretraining')
     parser.add_argument('--lr', type=float, default=0.001, help='Learning rate')
     parser.add_argument('--momentum', type=float, default=0.9, help='Momentum')
     parser.add_argument('--weight_decay', type=float, default=1.51e-4, help='Weight decay')
     parser.add_argument('--eps', type=float, default=1e-5, help='AdamW eps')
     parser.add_argument('--beta1', type=float, default=0.99, help='AdamW beta1')
     parser.add_argument('--beta2', type=float, default=0.999, help='AdamW beta2')
-    parser.add_argument('--patience', type=int, default=20, help='Early stopping patience')
+    parser.add_argument('--patience', type=int, default=100, help='Early stopping patience')
     parser.add_argument('--cr_mode', type=str, default='SmoothL1Loss', choices=['MSE', 'SmoothL1Loss'])
     parser.add_argument('--lr_mode', type=str, default='', choices=['', 'ReduceLROnPlateau', 'cosineAnnWarm'])
     parser.add_argument('--op_mode', type=str, default='AdamW', choices=['AdamW', 'SGD'])

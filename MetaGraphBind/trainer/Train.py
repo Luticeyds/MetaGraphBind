@@ -586,7 +586,7 @@ class MT_Trainer(object):
             model = self.student_model
         elif which_model == 'val':
             model = self.student_model
-            state_dict = torch.load('net/'+self.save_name + '.pt')
+            state_dict = torch.load(self.save_name + '.pt')
             model.load_state_dict(state_dict)
         model.eval()  # Set the model to evaluation mode
         total_loss = 0.0
@@ -627,11 +627,11 @@ class MT_Trainer(object):
                           mode='test', save=False)
 
             if which_model == 'teacher':
-                torch.save(copy.deepcopy(self.teacher_model.state_dict()), 'net/'+self.save_name + '_teacher.pt')
+                torch.save(copy.deepcopy(self.teacher_model.state_dict()), self.save_name + '_teacher.pt')
                 self.best_T = R2
                 print(f"better teacher:{self.best_T}")
             else:
-                torch.save(copy.deepcopy(self.student_model.state_dict()), 'net/'+self.save_name + '_student.pt')
+                torch.save(copy.deepcopy(self.student_model.state_dict()), self.save_name + '_student.pt')
                 self.best_S = R2
                 print(f"better student:{self.best_S}")
 
