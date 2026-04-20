@@ -498,7 +498,7 @@ class ValDataset(Dataset):
 
 
 class Unlabeled_Dataset(Dataset):
-    def __init__(self, args, first=True):
+    def __init__(self, args):
         """
         Initialize the JessDataset class.
 
@@ -511,11 +511,7 @@ class Unlabeled_Dataset(Dataset):
         self.supplement_data = None
         self.number = None
         self.seed = args.seed
-        if first:
-            self.scaler = joblib.load(args.transfer1_scaler_path)
-        else:
-            self.scaler = joblib.load(args.transfer2_scaler_path)
-
+        self.scaler = StandardScaler()
         self.device = args.device
         self.batch_size = args.batch_size
         self.excel_file = args.generated_excel
@@ -588,4 +584,4 @@ class Unlabeled_Dataset(Dataset):
         self.graph_data= self.smiles_to_graph()
 
         # Standardize supplementary data
-        self.supplement_data = torch.tensor(self.scaler.transform(data.iloc[:, 10:38].values), dtype=torch.float)
+        self.supplement_data = torch.tensor(self.scaler.fit_transform(data.iloc[:, 10:38].values), dtype=torch.float)

@@ -473,6 +473,7 @@ class MT_Trainer(object):
         self.train_labeled_loader = labeled_dataset.train_loader
         self.unlabeled_loader = unlabeled_dataset.val_loader
         self.test_labeled_loader = labeled_dataset.test_loader
+        self.val_labeled_loader = labeled_dataset.val_loader
         self.epochs = args.epochs
         self.epoch = 0
         self.global_step = 0
@@ -488,14 +489,14 @@ class MT_Trainer(object):
         for ema_param, student_param in zip(self.teacher_model.parameters(), self.student_model.parameters()):
             ema_param.data.mul_(alpha).add_(student_param.data, alpha=1 - alpha)
 
-    def perturb_node_features(self, graph, noise_level = 0.1):
+    def perturb_node_features(self, graph, noise_level=0.1):
         noise = torch.normal(mean=0, std=noise_level, size=graph.x.size()).to(self.device)
         graph.x += noise
         return graph
 
     def run(self):
-        best_teacher = 0.0
         best_train = 0.0
+        best_teacher = 0.0
         patience = 0
         for _ in range(self.epochs):
             self.epoch += 1
@@ -582,19 +583,22 @@ class MT_Trainer(object):
     def test(self, which_model='teacher'):
         if which_model == 'teacher':
             model = self.teacher_model
+            data_set = self.test_labeled_loader
         elif which_model == 'student':
             model = self.student_model
+            data_set = self.test_labeled_loader
         elif which_model == 'val':
             model = self.student_model
-            state_dict = torch.load(self.save_name + '_teacher.pt')
+            state_dict = torch.load('net/'+self.save_name + '_teacher.pt')
             model.load_state_dict(state_dict)
+            data_set = self.val_labeled_loader
         model.eval()  # Set the model to evaluation mode
         total_loss = 0.0
         first_batch = True
         total = 0
 
         with torch.no_grad():  # No gradient is needed in the testing phase
-            for data in self.test_labeled_loader:
+            for data in data_set:
                 graph, features, labels = data
                 graph, features, labels = graph.to(self.device), features.to(self.device), labels.to(self.device)
 
@@ -627,11 +631,11 @@ class MT_Trainer(object):
                           mode='test', save=False)
 
             if which_model == 'teacher':
-                torch.save(copy.deepcopy(self.teacher_model.state_dict()), self.save_name + '_teacher.pt')
+                torch.save(copy.deepcopy(self.teacher_model.state_dict()), 'net/'+self.save_name + '_teacher.pt')
                 self.best_T = R2
                 print(f"better teacher:{self.best_T}")
             else:
-                torch.save(copy.deepcopy(self.student_model.state_dict()), self.save_name + '_student.pt')
+                torch.save(copy.deepcopy(self.student_model.state_dict()), 'net/'+self.save_name + '_student.pt')
                 self.best_S = R2
                 print(f"better student:{self.best_S}")
 

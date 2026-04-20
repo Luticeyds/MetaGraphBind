@@ -5,7 +5,7 @@ import time
 
 import torch
 
-from Dataset.data import PreDataset, FinetuneDataset, ValDataset, Unlabeled_Dataset
+from Dataset.data import PreDataset, FinetuneDataset, Unlabeled_Dataset
 from model.Model import Model
 from trainer.Train import Trainer, MT_Trainer
 
@@ -16,7 +16,7 @@ def build_parser():
     # ========= basic =========
     parser.add_argument('--mode', type=str, default='pipeline', choices=['pipeline', 'pretrain', 'transfer1', 'transfer2', 'val'], help='Run mode')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
-    parser.add_argument('--device', type=str,default='cuda:0' if torch.cuda.is_available() else 'cpu', help='cuda:0 / cpu')
+    parser.add_argument('--device', type=str,default='cuda:1' if torch.cuda.is_available() else 'cpu', help='cuda:0 / cpu')
     parser.add_argument('--train_ratio', type=float, default=0.8, help='Train ratio')
     parser.add_argument('--batch_size', type=int, default=4096, help='Batch size')
 
@@ -34,14 +34,14 @@ def build_parser():
     parser.add_argument('--num_copies', type=int, default=20, help="Number of augmented copies for each training sample in finetuning")
 
     # ========= training =========
-    parser.add_argument('--epochs', type=int, default=1000, help='Epochs for pretraining')
+    parser.add_argument('--epochs', type=int, default=2000, help='Epochs for pretraining')
     parser.add_argument('--lr', type=float, default=0.001, help='Learning rate')
     parser.add_argument('--momentum', type=float, default=0.9, help='Momentum')
     parser.add_argument('--weight_decay', type=float, default=1.51e-4, help='Weight decay')
     parser.add_argument('--eps', type=float, default=1e-5, help='AdamW eps')
     parser.add_argument('--beta1', type=float, default=0.99, help='AdamW beta1')
     parser.add_argument('--beta2', type=float, default=0.999, help='AdamW beta2')
-    parser.add_argument('--patience', type=int, default=100, help='Early stopping patience')
+    parser.add_argument('--patience', type=int, default=200, help='Early stopping patience')
     parser.add_argument('--cr_mode', type=str, default='SmoothL1Loss', choices=['MSE', 'SmoothL1Loss'])
     parser.add_argument('--lr_mode', type=str, default='', choices=['', 'ReduceLROnPlateau', 'cosineAnnWarm'])
     parser.add_argument('--op_mode', type=str, default='AdamW', choices=['AdamW', 'SGD'])
@@ -50,7 +50,8 @@ def build_parser():
     parser.add_argument('--pretrain_excel', type=str, default='data/pretrain_jess_general.xlsx', help='General metal-ligand pretraining dataset')
     parser.add_argument('--transfer1_excel', type=str, default='data/transfer_lnan_subset.xlsx', help='Ln/An transfer dataset')
     parser.add_argument('--transfer2_excel', type=str, default='data/finetune_article_dataset.xlsx', help='Article fine-tuning dataset')
-    parser.add_argument('--generated_excel', type=str, default='data/generated_ligand.xlsx', help='Generated dataset in xlsx')
+    parser.add_argument('--generated_excel', type=str, default='data/generated_ligand.csv', help='Generated dataset in xlsx')
+    parser.add_argument('--val_excel', type=str, default='data/finetune_article_dataset.xlsx', help='Validation dataset')
 
     # ========= scaler files =========
     parser.add_argument('--pretrain_scaler_path', type=str, default='pre_scaler.joblib', help='Scaler path for pretraining')
@@ -61,7 +62,7 @@ def build_parser():
     parser.add_argument('--pretrain_ckpt', type=str, default='model_pretrain', help='Checkpoint name after pretraining')
     parser.add_argument('--transfer1_ckpt', type=str, default='model_transfer1', help='Checkpoint name after first transfer')
     parser.add_argument('--transfer2_ckpt', type=str, default='model_transfer2', help='Checkpoint name after second transfer')
-    parser.add_argument('--val_model_name', type=str, default='model_transfer2', help='Checkpoint name used for val')
+    parser.add_argument('--val_model_name', type=str, default='model_transfer2_teacher', help='Checkpoint name used for val')
 
     # ========= misc =========
     parser.add_argument('--save_name', type=str, default='run', help='Output prefix')
@@ -86,8 +87,8 @@ def ensure_dirs():
 
 def copy_ckpt_as(src_name: str, dst_name: str):
 
-    src_path = os.path.join('net', f'net/{src_name}.pt')
-    dst_path = os.path.join('net', f'net/{dst_name}.pt')
+    src_path = os.path.join('net', f'{src_name}.pt')
+    dst_path = os.path.join('net', f'{dst_name}.pt')
 
     if not os.path.exists(src_path):
         raise FileNotFoundError(f'Checkpoint not found: {src_path}')
@@ -131,17 +132,17 @@ def run_transfer(stage_name: str, excel_file: str, load_ckpt: str, save_ckpt: st
     start = time.time()
 
     labeled_dataset = FinetuneDataset(stage_args, first)
-    unlabeled_dataset = Unlabeled_Dataset(stage_args, first)
-    if first:
-        state_dict = torch.load(stage_args.model_name + '.pt')
-    else:
-        state_dict = torch.load(stage_args.model_name + '_student.pt')
+    unlabeled_dataset = Unlabeled_Dataset(stage_args)
+
+    print(f'Unlabeled dataset: {stage_args.generated_excel}')
+    state_dict = torch.load('net/'+stage_args.model_name + '.pt')
+
     model = Model(stage_args)
     model.load_state_dict(state_dict)
     trainer = MT_Trainer(model, labeled_dataset, unlabeled_dataset, stage_args)
     trainer.run()
 
-    temp_name = f'trans_{load_ckpt}'
+    temp_name = f'{load_ckpt}'
     copy_ckpt_as(temp_name, save_ckpt)
 
     print(f'[{stage_name}] Done. Time: {time.time() - start:.2f}s')
@@ -172,14 +173,14 @@ def pipeline_main(args):
     ckpt_stage3 = run_transfer(
         stage_name='Stage 3/3',
         excel_file=args.transfer2_excel,
-        load_ckpt=ckpt_stage2,
+        load_ckpt=ckpt_stage2+'_teacher',
         save_ckpt=args.transfer2_ckpt,
         args=args,
         first=False
     )
 
     print('\n===== Pipeline finished =====')
-    # print(f'Pretraining checkpoint : net/{ckpt_stage1}.pt')
+    print(f'Pretraining checkpoint : net/{ckpt_stage1}.pt')
     print(f'Transfer-1 checkpoint  : net/{ckpt_stage2}.pt')
     print(f'Transfer-2 checkpoint  : net/{ckpt_stage3}.pt')
     print(f'Total time: {time.time() - total_start:.2f}s')
@@ -207,7 +208,7 @@ def transfer2_only_main(args):
     run_transfer(
         stage_name='Stage 3/3',
         excel_file=args.transfer2_excel,
-        load_ckpt=args.transfer1_ckpt,
+        load_ckpt=args.transfer1_ckpt+'_teacher',
         save_ckpt=args.transfer2_ckpt,
         args=args,
         first=False
@@ -228,6 +229,8 @@ def val_main(args):
     start = time.time()
 
     dataset = FinetuneDataset(val_args)
+    train_loader = dataset.train_loader
+    test_loader = dataset.test_loader
     val_loader = dataset.val_loader
 
     state_dict = torch.load(os.path.join('net', f'{val_args.model_name}.pt'),
@@ -259,16 +262,16 @@ def val_main(args):
         "Experimental_logK1": y_true,
         "Predicted_logK1": y_pred
     })
-    df.to_csv("train_parity_data.csv", index=False)
+    csv_file = ("val_parity_data.csv")
+    df.to_csv(csv_file, index=False)
 
     print(f'[VAL] Done. Time: {time.time() - start:.2f}s')
-    print('[VAL] Saved to train_parity_data.csv')
+    print(f'[VAL] Saved to {csv_file}')
 
 
 if __name__ == '__main__':
     parser = build_parser()
     args = parser.parse_args()
-
 
     if args.mode == 'pipeline':
         pipeline_main(args)
